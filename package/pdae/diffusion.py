@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+# from https://github.com/w86763777/pytorch-ddpm
+
 def extract(v, t, x_shape):
     """
     Extract some coefficients at specified timesteps, then reshape to
@@ -30,7 +32,7 @@ class GaussianDiffusionTrainer(nn.Module):
         self.register_buffer(
             'sqrt_one_minus_alphas_bar', torch.sqrt(1. - alphas_bar))
 
-    def forward(self, x_0):
+    def forward(self, x_0, cond = None):
         """
         Algorithm 1.
         """
@@ -39,12 +41,12 @@ class GaussianDiffusionTrainer(nn.Module):
         x_t = (
             extract(self.sqrt_alphas_bar, t, x_0.shape) * x_0 +
             extract(self.sqrt_one_minus_alphas_bar, t, x_0.shape) * noise)
-        loss = F.mse_loss(self.model(x_t, t), noise, reduction='none')
+        loss = F.mse_loss(self.model(x_t, t.float(), cond), noise, reduction='none')
         return loss
 
 
 class GaussianDiffusionSampler(nn.Module):
-    def __init__(self, model, beta_1, beta_T, T, img_size=32,
+    def __init__(self, model, beta_1, beta_T, T,
                  mean_type='eps', var_type='fixedlarge'):
         assert mean_type in ['xprev' 'xstart', 'epsilon']
         assert var_type in ['fixedlarge', 'fixedsmall']
@@ -52,7 +54,6 @@ class GaussianDiffusionSampler(nn.Module):
 
         self.model = model
         self.T = T
-        self.img_size = img_size
         self.mean_type = mean_type
         self.var_type = var_type
 
@@ -116,7 +117,7 @@ class GaussianDiffusionSampler(nn.Module):
                 x_t.shape) * x_t
         )
 
-    def p_mean_variance(self, x_t, t):
+    def p_mean_variance(self, x_t, t, cond = None):
         # below: only log_variance is used in the KL computations
         model_log_var = {
             # for fixedlarge, we set the initial (log-)variance like so to
@@ -129,14 +130,14 @@ class GaussianDiffusionSampler(nn.Module):
 
         # Mean parameterization
         if self.mean_type == 'xprev':       # the model predicts x_{t-1}
-            x_prev = self.model(x_t, t)
-            x_0 = self.predict_xstart_from_xprev(x_t, t, xprev=x_prev)
+            x_prev = self.model(x_t, t.float(), cond)
+            x_0 = self.predict_xstart_from_xprev(x_t, t.float(), xprev=x_prev)
             model_mean = x_prev
         elif self.mean_type == 'xstart':    # the model predicts x_0
-            x_0 = self.model(x_t, t)
+            x_0 = self.model(x_t, t, cond)
             model_mean, _ = self.q_mean_variance(x_0, x_t, t)
         elif self.mean_type == 'epsilon':   # the model predicts epsilon
-            eps = self.model(x_t, t)
+            eps = self.model(x_t, t.float(), cond)
             x_0 = self.predict_xstart_from_eps(x_t, t, eps=eps)
             model_mean, _ = self.q_mean_variance(x_0, x_t, t)
         else:
