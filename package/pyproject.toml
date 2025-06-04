@@ -1,0 +1,16 @@
+[project]
+name = "pdae"
+version = "0.0.1"
+dependencies = []
+description = "perceiver diffusive autoencoder"
+authors = [
+    { name="Yunyi Shen", email="yshen99@mit.edu" }
+]
+license = { text = "MIT" }
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pdae"]
