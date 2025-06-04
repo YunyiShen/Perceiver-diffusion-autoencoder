@@ -29,7 +29,7 @@ class RBF(nn.Module):
         return torch.exp(-L2_distances[None, ...] / ((self.get_bandwidth(L2_distances) * self.bandwidth_multipliers.to(X.device))[:, None, None])).sum(dim=0)
 
 
-class MMDLoss(nn.Module):
+class MMD(nn.Module):
 
     def __init__(self, kernel=RBF(bandwidth=1.)): # default to a fixed bandwidth for optimization
         super().__init__()
