@@ -80,15 +80,18 @@ class photometricTransceiverDecoder(nn.Module):
         self.time_band_embd = timebandEmbedding(num_bands, model_dim)
         self.donotmask = donotmask
     
-    def forward(self, time, band, bottleneck, mask=None):
+    def forward(self, x, bottleneck):
         '''
         Args:
-            time: time of the photometry being taken [batch_size, photometry_length]
-            band: band of the photometry being taken [batch_size, photometry_length]
+            x: a tuple of 
+                time: time of the photometry being taken [batch_size, photometry_length]
+                band: band of the photometry being taken [batch_size, photometry_length]
+                mask: mask [batch_size, photometry_length]
             bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
         Return:
             flux of the decoded photometry, [batch_size, photometry_length]
         '''
+        time, band, mask = x
         if self.donotmask:
             mask = None
         x = self.time_band_embd(time, band)
@@ -133,7 +136,7 @@ class photometricTransceiverEncoder(nn.Module):
         self.photometry_embd = photometryEmbedding(num_bands, model_dim)
 
 
-    def forward(self, flux, time, band, mask=None):
+    def forward(self, x):
         '''
         Args:
             flux: flux (potentially transformed) of the photometry being taken [batch_size, photometry_length]
@@ -143,7 +146,7 @@ class photometricTransceiverEncoder(nn.Module):
             encoding of size [batch_size, bottleneck_length, bottleneck_dim]
 
         '''
-        
+        flux, time, band, mask = x
         x = self.photometry_embd(flux, time, band)
         return self.encoder(x, mask) 
         

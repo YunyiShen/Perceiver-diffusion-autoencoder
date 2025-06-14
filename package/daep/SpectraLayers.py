@@ -89,15 +89,18 @@ class spectraTransceiverDecoder(nn.Module):
         )
         self.wavelengthphaseembd = wavelengthphaseEmbedding(model_dim)
     
-    def forward(self, wavelength, phase, bottleneck, mask=None):
+    def forward(self, x, bottleneck):
         '''
         Args:
-            wavelength: wavelength of the spectra being taken [batch_size, spectra_length]
-            phase: phase of the spectra being taken [batch_size, 1]
+            x: a tuple of: 
+                wavelength: wavelength of the spectra being taken [batch_size, spectra_length]
+                phase: phase of the spectra being taken [batch_size, 1]
+                mask: mask of spectra [batch_size, spectra_length]
             bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
         Return:
             Decoded spectra of shape [batch_size, spectra_length]
         '''
+        wavelength, phase, mask = x
         x, phase_embd = self.wavelengthphaseembd(wavelength, phase)
         return self.decoder(bottleneck, x, phase_embd, mask).squeeze(-1) # residual connection
 
@@ -136,16 +139,18 @@ class spectraTransceiverEncoder(nn.Module):
         
         self.spectraEmbd = spectraEmbedding(model_dim)
 
-    def forward(self, wavelength, flux, phase, mask=None):
+    def forward(self, x):
         '''
         Args:
-            wavelength: wavelength of the spectra being taken [batch_size, spectra_length]
-            flux: flux of the spectra being taken of shape [batch_size, spectra_length]
-            phase: phase of the spectra being taken [batch_size, 1]
-            mask: which are not measured [batch_size, spectra_length]
+            x: a tuple of 
+                flux: flux of the spectra being taken of shape [batch_size, spectra_length]
+                wavelength: wavelength of the spectra being taken [batch_size, spectra_length]
+                phase: phase of the spectra being taken [batch_size, 1]
+                mask: which are not measured [batch_size, spectra_length]
         Return:
             Encoded spectra of shape [batch_size, bottleneck_length, bottleneck_dim]
         '''
+        flux, wavelength, phase, mask = x
         x = self.spectraEmbd(wavelength, flux, phase)
         if mask is not None:
            # add a false at end to account for the added phase embd
