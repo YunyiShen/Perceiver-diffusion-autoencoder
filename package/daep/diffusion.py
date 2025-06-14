@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import copy
 
 
 # from https://github.com/w86763777/pytorch-ddpm
@@ -15,10 +16,9 @@ def extract(v, t, x_shape):
 
 
 class GaussianDiffusionTrainer(nn.Module):
-    def __init__(self, beta_1, beta_T, T):
+    def __init__(self, beta_1 = 1e-4, beta_T = 0.02, T = 1000):
         super().__init__()
 
-        model = model
         self.T = T
 
         self.register_buffer(
@@ -32,16 +32,27 @@ class GaussianDiffusionTrainer(nn.Module):
         self.register_buffer(
             'sqrt_one_minus_alphas_bar', torch.sqrt(1. - alphas_bar))
 
-    def forward(self, model, x_0, cond = None, mask = None):
+    def forward(self, model, x_0, cond = None):
         """
         Algorithm 1.
         """
-        t = torch.randint(self.T, size=(x_0.shape[0], ), device=x_0.device)
-        noise = torch.randn_like(x_0)
-        x_t = (
-            extract(self.sqrt_alphas_bar, t, x_0.shape) * x_0 +
-            extract(self.sqrt_one_minus_alphas_bar, t, x_0.shape) * noise)
-        loss = F.mse_loss(model(x_t, t.float(), cond, mask), noise, reduction='none')
+        if isinstance(x, tuple):
+            t = torch.randint(self.T, size=(x_0[0].shape[0], ), device=x_0[0].device)
+            noise = torch.randn_like(x_0[0]).to(x_0[0].device)
+            x_t = copy.deepcopy(x_0)
+            x_t[0] = (
+                extract(self.sqrt_alphas_bar, t, x_0[0].shape) * x_0[0] +
+                extract(self.sqrt_one_minus_alphas_bar, t, x_0[0].shape) * noise)
+        
+            loss = F.mse_loss(model(x_t, t.float(), cond), noise, reduction='none')
+        else:
+            t = torch.randint(self.T, size=(x_0.shape[0], ), device=x_0.device)
+            noise = torch.randn_like(x_0).to(x_0.device)
+            x_t = (
+                extract(self.sqrt_alphas_bar, t, x_0.shape) * x_0 +
+                extract(self.sqrt_one_minus_alphas_bar, t, x_0.shape) * noise)
+        
+            loss = F.mse_loss(model(x_t, t.float(), cond), noise, reduction='none')
         return loss
 
 
@@ -161,3 +172,55 @@ class GaussianDiffusionSampler(nn.Module):
             x_t = mean + torch.exp(0.5 * log_var) * noise
         x_0 = x_t
         return torch.clip(x_0, -1, 1)
+    
+    def ddim_sample(self, model, x_T, eta=0.0, cond=None, mask=None, steps=None):
+    """
+    DDIM sampling loop: deterministic or stochastic depending on eta.
+    Args:
+        model: the trained noise-predicting model
+        x_T: starting noise sample
+        eta: level of noise (eta=0 = deterministic DDIM)
+        steps: optional number of sampling steps (if None, use full T)
+    Returns:
+        x_0: final denoised sample
+    """
+        assert self.mean_type == 'epsilon', "DDIM sampling requires model to predict epsilon"
+        if steps is None:
+            steps = self.T
+
+        # Setup sampling schedule
+        step_indices = torch.linspace(0, self.T - 1, steps, dtype=torch.long)
+        x_t = x_T
+
+        for i in reversed(range(steps)):
+            t = step_indices[i].item()
+            t_int = torch.full((x_T.shape[0],), int(t), dtype=torch.long, device=x_T.device)
+
+            # Predict noise
+            eps = model(x_t, t_int.float(), cond, mask)
+            alpha_bar_t = extract(torch.cumprod(1. - self.betas, dim=0), t_int, x_t.shape)
+
+            # Predict x0
+            x0 = (x_t - torch.sqrt(1 - alpha_bar_t) * eps) / torch.sqrt(alpha_bar_t)
+            x0 = torch.clip(x0, -1., 1.)
+
+            if i == 0:
+                x_t = x0
+                break
+
+            t_prev = step_indices[i - 1].item()
+            t_prev_int = torch.full_like(t_int, int(t_prev))
+            alpha_bar_prev = extract(torch.cumprod(1. - self.betas, dim=0), t_prev_int, x_t.shape)
+
+            sigma = eta * torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar_t) * (1 - alpha_bar_t / alpha_bar_prev))
+            noise = torch.randn_like(x_t) if eta > 0 else 0.0
+
+            x_t = (
+                torch.sqrt(alpha_bar_prev) * x0 +
+                torch.sqrt(1 - alpha_bar_prev - sigma**2) * eps +
+                sigma * noise
+            )
+
+        return x_t
+
+
