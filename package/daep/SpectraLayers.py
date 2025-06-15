@@ -30,16 +30,20 @@ class wavelengthphaseEmbedding(nn.Module):
 
 
 class spectraEmbedding(nn.Module):
-    def __init__(self, model_dim = 32):
+    def __init__(self, model_dim = 32, concat = False):
         '''
         spectra embedding, sinusoidal-MLP embedding for phase and added to 
             linear embedding of flux, the append in seq space of phase
         Arg: model_dim: model dimension
+            concat: if we use concatenate then projection to combine flux and wavelength
         '''
         super(spectraEmbedding, self).__init__()
         self.phase_embd_layer = SinusoidalMLPPositionalEmbedding(model_dim)# expand phase to bottleneck
+        self.concat = concat
         self.wavelength_embd_layer = SinusoidalMLPPositionalEmbedding(model_dim)# expand wavelength to bottleneck
         self.flux_embd = nn.Linear(1, model_dim)
+        if concat:
+            self.spfc = MLP(2*model_dim, model_dim, [model_dim])
     
     def forward(self, wavelength, flux, phase):
         '''
@@ -48,7 +52,10 @@ class spectraEmbedding(nn.Module):
             phase: phase, size [batch,]
 
         '''
-        flux_embd = self.flux_embd(flux[:, :, None]) + self.wavelength_embd_layer(wavelength)
+        if self.concat:
+            flux_embd = self.spfc(torch.cat([self.flux_embd(flux[:, :, None]), self.wavelength_embd_layer(wavelength)], -1))
+        else:
+            flux_embd = self.flux_embd(flux[:, :, None]) + self.wavelength_embd_layer(wavelength)
         phase_embd = self.phase_embd_layer(phase[:, None])
         return torch.cat([flux_embd, phase_embd], dim=1)
 
@@ -113,7 +120,8 @@ class spectraTransceiverEncoder(nn.Module):
                  num_layers = 4,
                  ff_dim = 32, 
                  dropout = 0.1, 
-                 selfattn = False):
+                 selfattn = False, 
+                 concat = True):
         '''
         Transceiver encoder for spectra, with cross attention pooling
         Args:
@@ -137,7 +145,7 @@ class spectraTransceiverEncoder(nn.Module):
                  dropout, 
                  selfattn)
         
-        self.spectraEmbd = spectraEmbedding(model_dim)
+        self.spectraEmbd = spectraEmbedding(model_dim, concat)
 
     def forward(self, x):
         '''

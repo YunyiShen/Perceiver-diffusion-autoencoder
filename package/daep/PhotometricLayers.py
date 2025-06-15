@@ -39,6 +39,25 @@ class photometryEmbedding(nn.Module):
         return (self.fluxfc(flux[:, :, None]) + self.time_band_embd(time, band))
 
 
+class photometryEmbeddingConcat(nn.Module):
+    def __init__(self, num_bands = 6, model_dim = 32):
+        super(photometryEmbeddingConcat, self).__init__()
+        self.time_embd = SinusoidalMLPPositionalEmbedding(model_dim)
+        self.bandembd = nn.Embedding(num_bands, model_dim)
+        self.fluxfc = nn.Linear(1, model_dim)
+        self.lcfc = MLP(model_dim * 3, model_dim, [model_dim])
+
+    def forward(self, flux, time, band):
+        '''
+        Args:
+            flux: flux (potentially transformed) of the photometry being taken [batch_size, photometry_length]
+            time: time (potentially transformed) of the photometry being taken [batch_size, photometry_length]
+            band: band of the photometry being taken [batch_size, photometry_length]
+        Return:
+            encoding of size [batch_size, bottleneck_length, bottleneck_dim]
+
+        '''
+        return self.lcfc(torch.cat((self.fluxfc(flux[:, :, None]), self.time_embd(time) , self.bandembd(band)), axis = -1))
 
 
 class photometricTransceiverDecoder(nn.Module):
@@ -109,7 +128,8 @@ class photometricTransceiverEncoder(nn.Module):
                  ff_dim = 32,
                  num_layers = 4,
                  dropout=0.1,
-                 selfattn=False):
+                 selfattn=False, 
+                 concat = True):
         '''
         Transceiver encoder for photometry, with cross attention pooling
         Args:
@@ -122,7 +142,7 @@ class photometricTransceiverEncoder(nn.Module):
             num_layers: number of transformer blocks
             dropout: drop out in transformer
             selfattn: if we want self attention to the given LC
-
+            concat: how to construct flux, band and time joint embedding. If True, we separately embedding them, concatenate at the last dimension then project using a small MLP to model dimension, otherwise they are separately embedded and added
         '''
         super(photometricTransceiverEncoder, self).__init__()
         self.encoder = PerceiverEncoder(bottleneck_length,
@@ -133,8 +153,10 @@ class photometricTransceiverEncoder(nn.Module):
                  ff_dim, 
                  dropout, 
                  selfattn)
-        self.photometry_embd = photometryEmbedding(num_bands, model_dim)
-
+        if concat:
+            self.photometry_embd = photometryEmbeddingConcat(num_bands, model_dim)
+        else:
+            self.photometry_embd = photometryEmbedding(num_bands, model_dim)
 
     def forward(self, x):
         '''
