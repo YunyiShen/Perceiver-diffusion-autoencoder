@@ -22,7 +22,7 @@ class GaussianDiffusionTrainer(nn.Module):
         self.T = T
 
         self.register_buffer(
-            'betas', torch.linspace(beta_1, beta_T, T).double())
+            'betas', torch.linspace(beta_1, beta_T, T).float())
         alphas = 1. - self.betas
         alphas_bar = torch.cumprod(alphas, dim=0)
 
@@ -32,42 +32,23 @@ class GaussianDiffusionTrainer(nn.Module):
         self.register_buffer(
             'sqrt_one_minus_alphas_bar', torch.sqrt(1. - alphas_bar))
 
-    def forward(self, model, x_0, cond = None):
+    def forward(self, model, x_0, cond = None, name = "flux"):
         """
         Algorithm 1.
         """
-        if isinstance(x, tuple):
-            t = torch.randint(self.T, size=(x_0[0].shape[0], ), device=x_0[0].device)
-            noise = torch.randn_like(x_0[0]).to(x_0[0].device)
-            x_t = copy.deepcopy(x_0)
-            x_t[0] = (
-                extract(self.sqrt_alphas_bar, t, x_0[0].shape) * x_0[0] +
-                extract(self.sqrt_one_minus_alphas_bar, t, x_0[0].shape) * noise)
-        
-            loss = F.mse_loss(model(x_t, t.float(), cond), noise, reduction='none')
-        elif isinstance(x, dict): # if a dictionary
-            t = torch.randint(self.T, size=(x_0['val'].shape[0], ), device=x_0['val'].device)
-            noise = torch.randn_like(x_0['val']).to(x_0['val'].device)
-            x_t = copy.deepcopy(x_0)
-            x_t['val'] = (
-                extract(self.sqrt_alphas_bar, t, x_0['val'].shape) * x_0['val'] +
-                extract(self.sqrt_one_minus_alphas_bar, t, x_0['val'].shape) * noise)
-        
-            loss = F.mse_loss(model(x_t, t.float(), cond), noise, reduction='none')
-        elif:
-            t = torch.randint(self.T, size=(x_0.shape[0], ), device=x_0.device)
-            noise = torch.randn_like(x_0).to(x_0.device)
-            x_t = (
-                extract(self.sqrt_alphas_bar, t, x_0.shape) * x_0 +
-                extract(self.sqrt_one_minus_alphas_bar, t, x_0.shape) * noise)
-        
-            loss = F.mse_loss(model(x_t, t.float(), cond), noise, reduction='none')
+        t = torch.randint(self.T, size=(x_0[name].shape[0], ), device=x_0[name].device)
+        noise = torch.randn_like(x_0[name]).to(x_0[name].device)
+        x_t = x_0
+        x_t[name] = (
+            extract(self.sqrt_alphas_bar, t, x_0[name].shape) * x_0[name] +
+            extract(self.sqrt_one_minus_alphas_bar, t, x_0[name].shape) * noise)
+        loss = F.mse_loss(model(x_t, t.float()/self.T, cond), noise, reduction='none')
         return loss
 
 
 class GaussianDiffusionSampler(nn.Module):
     def __init__(self, beta_1, beta_T, T,
-                 mean_type='eps', var_type='fixedlarge'):
+                 mean_type='eps', var_type='fixedsmall'):
         assert mean_type in ['xprev' 'xstart', 'epsilon']
         assert var_type in ['fixedlarge', 'fixedsmall']
         super().__init__()
@@ -77,7 +58,7 @@ class GaussianDiffusionSampler(nn.Module):
         self.var_type = var_type
 
         self.register_buffer(
-            'betas', torch.linspace(beta_1, beta_T, T).double())
+            'betas', torch.linspace(beta_1, beta_T, T).float())
         alphas = 1. - self.betas
         alphas_bar = torch.cumprod(alphas, dim=0)
         alphas_bar_prev = F.pad(alphas_bar, [1, 0], value=1)[:T]
@@ -136,7 +117,7 @@ class GaussianDiffusionSampler(nn.Module):
                 x_t.shape) * x_t
         )
 
-    def p_mean_variance(self, model, x_t, t, cond = None, mask = None):
+    def p_mean_variance(self, model, x_t, t, cond = None):
         # below: only log_variance is used in the KL computations
         model_log_var = {
             # for fixedlarge, we set the initial (log-)variance like so to
@@ -149,14 +130,14 @@ class GaussianDiffusionSampler(nn.Module):
 
         # Mean parameterization
         if self.mean_type == 'xprev':       # the model predicts x_{t-1}
-            x_prev = model(x_t, t.float(), cond, mask)
+            x_prev = model(x_t, t.float()/self.T, cond)
             x_0 = self.predict_xstart_from_xprev(x_t, t.float(), xprev=x_prev)
             model_mean = x_prev
         elif self.mean_type == 'xstart':    # the model predicts x_0
-            x_0 = model(x_t, t.float(), cond, mask)
+            x_0 = model(x_t, t.float(), cond)
             model_mean, _ = self.q_mean_variance(x_0, x_t, t)
         elif self.mean_type == 'epsilon':   # the model predicts epsilon
-            eps = model(x_t, t.float(), cond, mask)
+            eps = model(x_t, t.float()/self.T, cond)
             x_0 = self.predict_xstart_from_eps(x_t, t, eps=eps)
             model_mean, _ = self.q_mean_variance(x_0, x_t, t)
         else:
@@ -165,14 +146,14 @@ class GaussianDiffusionSampler(nn.Module):
 
         return model_mean, model_log_var
 
-    def forward(self, model, x_T):
+    def forward(self, model, x_T, cond = None):
         """
         Algorithm 2.
         """
         x_t = x_T
         for time_step in reversed(range(self.T)):
             t = x_t.new_ones([x_T.shape[0], ], dtype=torch.long) * time_step
-            mean, log_var = self.p_mean_variance(model=model, x_t=x_t, t=t)
+            mean, log_var = self.p_mean_variance(model=model, x_t=x_t, t=t, cond = cond)
             # no noise when t == 0
             if time_step > 0:
                 noise = torch.randn_like(x_t)
@@ -180,7 +161,7 @@ class GaussianDiffusionSampler(nn.Module):
                 noise = 0
             x_t = mean + torch.exp(0.5 * log_var) * noise
         x_0 = x_t
-        return torch.clip(x_0, -1, 1)
+        return x_0
     
     def ddim_sample(self, model, x_T, eta=0.0, cond=None, mask=None, steps=None):
     """

@@ -45,8 +45,19 @@ class unimodaldaep(nn.Module):
         qz_x = self.prior(*self.prior_params).rsample(torch.size([z.shape[0]]))
 
         mmd_loss = self.regularize * self.MMD(z.reshape[z.shape[0], -1], qz_x.reshape(z.shape[0], -1))
-        score = self.score_model(xt, t, z)
 
-        score_matching_loss = self.diffusion_trainer(self.score_model, x, z).mean()
+        score_matching_loss = self.diffusion_trainer(self.score, x, z).mean()
 
         return mmd_loss + score_matching_loss
+    
+    def sample(z, x_T):
+        return self.diffusion_sampler(self.score, x_T, cond)
+    
+
+    def reconstruct(x, name = "flux"):
+        z = self.encode(x)
+        t = torch.randint(self.T, size=(x_0[name].shape[0], ), device=x_0[name].device)
+        noise = torch.randn_like(x_0[name]).to(x_0[name].device)
+        x_t = x_0
+        x_t[name] = noise
+        return self.sample(z, x_t)

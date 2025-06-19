@@ -40,7 +40,7 @@ class spectraEmbedding(nn.Module):
 
 
 
-class spectraTransceiverDecoder(nn.Module):
+class spectraTransceiverScore(nn.Module):
     def __init__(self,
                  bottleneck_dim,
                  model_dim = 32, 
@@ -48,7 +48,8 @@ class spectraTransceiverDecoder(nn.Module):
                  ff_dim = 32, 
                  num_layers = 4,
                  dropout=0.1, 
-                 selfattn=False
+                 selfattn=False,
+                 concat = True
                  ):
         '''
         A transformer to decode something (latent) into spectra given time and band
@@ -62,7 +63,7 @@ class spectraTransceiverDecoder(nn.Module):
             dropout: drop out in transformer
             selfattn: if we want self attention to the latent
         '''
-        super(spectraTransceiverDecoder, self).__init__()
+        super(spectraTransceiverScore, self).__init__()
         self.decoder = PerceiverDecoder(
             bottleneck_dim,
                  1,
@@ -73,7 +74,7 @@ class spectraTransceiverDecoder(nn.Module):
                  dropout, 
                  selfattn
         )
-        self.spectraEmbd = spectraEmbedding(model_dim)
+        self.spectraEmbd = spectraEmbedding(model_dim, concat)
         
     
     def forward(self, x, bottleneck, aux):
@@ -87,7 +88,7 @@ class spectraTransceiverDecoder(nn.Module):
         Return:
             Decoded spectra of shape [batch_size, spectra_length]
         '''
-        flux, wavelength, phase, mask = x['val'] ,x['wavelength'], x['phase'], x['mask']
+        flux, wavelength, phase, mask = x['flux'] ,x['wavelength'], x['phase'], x['mask']
         x = self.spectraEmbd(wavelength, flux, phase)
         aux = torch.cat((x[:, -1,:][:, None, :], aux), axis = 1) # aux has original aux (diffusion time usually) and phase embedding
         x = x[:, :-1, :]
@@ -140,7 +141,7 @@ class spectraTransceiverEncoder(nn.Module):
         Return:
             Encoded spectra of shape [batch_size, bottleneck_length, bottleneck_dim]
         '''
-        flux, wavelength, phase, mask = x['val'], x['wavelength'], x['phase'], x['mask']
+        flux, wavelength, phase, mask = x['flux'], x['wavelength'], x['phase'], x['mask']
         x = self.spectraEmbd(wavelength, flux, phase)
         if mask is not None:
            # add a false at end to account for the added phase embd
