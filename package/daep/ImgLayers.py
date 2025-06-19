@@ -4,6 +4,31 @@ from .util_layers import *
 import math
 from .Perceiver import PerceiverEncoder, PerceiverDecoder
 
+class ImgTokenizer(nn.Module):
+    def __init__(self, 
+                    img_size,
+                    patch_size=4, 
+                    in_channels=3,
+                    model_dim = 32, 
+                    sincosin = False):
+        super().__init__()
+        assert img_size % patch_size == 0, "image size has to be divisible to patch size"
+        self.model_dim = model_dim
+        self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, model_dim)
+        if sincosin:
+            self.pos_embed = SinusoidalPositionalEmbedding2D(model_dim, img_size//patch_size,img_size//patch_size)
+        else:
+            self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.num_patches, model_dim))
+    
+    def forward(img):
+        image_embd = self.patch_embed(image)  # [B, N, D]
+        image_embd = image_embd + self.pos_embed()  # [B, N, D]
+        return image_embd
+
+
+
+
+
 class HostImgTransceiverEncoder(nn.Module):
     def __init__(self, 
                     img_size,
@@ -89,7 +114,7 @@ class HostImgTransceiverEncoder(nn.Module):
         
         return self.encoder(x)
 
-
+'''
 class HostImgTransceiverDecoder(nn.Module):
     def __init__(self,
                 img_size,
@@ -153,14 +178,13 @@ class HostImgTransceiverDecoder(nn.Module):
         h = self.decoder(bottleneck, x)
         h = h.view(x.shape[0], self.img_size, self.img_size, self.in_channels).permute(0, 3, 1, 2)
         return h    
+'''
 
 
 
-
-
+# this is a score model instead of a direct decoder
 class HostImgTransceiverDecoderHybrid(nn.Module):
     def __init__(self,
-                 img_size,
                  bottleneck_dim,
                  patch_size=4,
                  in_channels=3,
@@ -169,12 +193,12 @@ class HostImgTransceiverDecoderHybrid(nn.Module):
                  ff_dim=128,
                  num_layers=4,
                  dropout=0.1,
-                 selfattn=False
+                 selfattn=False,
+                 sincosin = True
                  ):
         '''
         Decoder directly to patch then refine with a CNN at the end
         Arg:
-            img_size: the size of the image, assuming square
             bottleneck_dim: dimension of bottleneck
             patch_size: patch size to decode to then refine
             in_channel: number of channels in the image
@@ -184,6 +208,7 @@ class HostImgTransceiverDecoderHybrid(nn.Module):
             num_layers: number of transformer blocks
             dropout: drop out in transformer
             selfattn: if we want self attention to the given image
+            sincosin: what positional encoding to use in tokenizer
         '''
         super().__init__()
 
@@ -197,20 +222,12 @@ class HostImgTransceiverDecoderHybrid(nn.Module):
         
 
         # positional embedding for patch tokens
-        self.init_img_embd = SinusoidalPositionalEmbedding2D(model_dim, self.grid_size, self.grid_size)
-
-
-        '''
-        # context bottleneck projection
-        self.contextfc = MLP(bottleneck_dim, model_dim, [model_dim])
-        # transformer blocks
-        self.transformerblocks = nn.ModuleList([
-            TransceiverBlock(model_dim, num_heads, ff_dim, dropout, selfattn)
-            for _ in range(num_layers)
-        ])
-        # each token outputs a small image patch (flattened)
-        self.decoder = nn.Linear(model_dim, model_dim * patch_size * patch_size)
-        '''
+        self.tokenizer = ImgTokenizer(img_size,
+                    patch_size, 
+                    in_channels,
+                    model_dim, 
+                    sincosin)
+        
 
         self.decoder = PerceiverDecoder(
             bottleneck_dim,
@@ -229,34 +246,24 @@ class HostImgTransceiverDecoderHybrid(nn.Module):
         mid_channels = model_dim * 4  # heuristic: scale with patch_size
 
         self.final_refine = nn.Sequential(
-            nn.Conv2d(model_dim, mid_channels, kernel_size=patch_size, padding='same'),
+            nn.Conv2d(model_dim, mid_channels, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(mid_channels, in_channels, kernel_size=patch_size, padding='same')
+            nn.ConvTranspose2d(mid_channels, in_channels, kernel_size=patch_size, stride=patch_size)
         )
 
-    def forward(self, bottleneck):
+    def forward(self, noisyImg, bottleneck, aux):
         '''
         Arg:
+            query: should be a corrupted image 
             bottleneck: tensor for bottleneck, [batch, bottleneck_length, bottleneck_dim]
+            aux: aux tensor to be ppended to time 
         Return:
             Decoded image, with shape [batch, in_channel, img_size, img_size]
         '''
-        B = bottleneck.size(0)
-        pos_embed = self.init_img_embd()[None, :, :].expand(B, -1, -1)  # [B, num_patches, model_dim]
-        model_dim = pos_embed.shape[-1]
-        h = pos_embed
-        h = self.decoder(bottleneck, h)
-        '''
-        context = self.contextfc(bottleneck)  # [B, bottleneck_len, model_dim]
-        
-        for block in self.transformerblocks:
-            h = block(h, context)
-
-        h = h + pos_embed  # residual
-
-        # decode to patch content
-        h = self.decoder(h)  # [B, num_patches, patch_area*C]
-        '''
+        B = bottleneck.size(0) # batchs
+        model_dim = self.decoder.model_dim
+        h = self.tokenizer(noisyImg)
+        h = self.decoder(bottleneck, h, aux)
         h = h.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, model_dim)
         h = h.permute(0, 5, 1, 3, 2, 4).contiguous()
         h = h.view(B, model_dim, self.img_size, self.img_size)  # [B, C, H, W]

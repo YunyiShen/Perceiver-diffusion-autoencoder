@@ -45,7 +45,16 @@ class GaussianDiffusionTrainer(nn.Module):
                 extract(self.sqrt_one_minus_alphas_bar, t, x_0[0].shape) * noise)
         
             loss = F.mse_loss(model(x_t, t.float(), cond), noise, reduction='none')
-        else:
+        elif isinstance(x, dict): # if a dictionary
+            t = torch.randint(self.T, size=(x_0['val'].shape[0], ), device=x_0['val'].device)
+            noise = torch.randn_like(x_0['val']).to(x_0['val'].device)
+            x_t = copy.deepcopy(x_0)
+            x_t['val'] = (
+                extract(self.sqrt_alphas_bar, t, x_0['val'].shape) * x_0['val'] +
+                extract(self.sqrt_one_minus_alphas_bar, t, x_0['val'].shape) * noise)
+        
+            loss = F.mse_loss(model(x_t, t.float(), cond), noise, reduction='none')
+        elif:
             t = torch.randint(self.T, size=(x_0.shape[0], ), device=x_0.device)
             noise = torch.randn_like(x_0).to(x_0.device)
             x_t = (
