@@ -23,6 +23,21 @@ def to_device(data, device='cuda' if torch.cuda.is_available() else 'cpu'):
     else:
         return data  # unchanged if not a tensor/list/dict/tuple
 
+
+def to_np_cpu(data):
+    if torch.is_tensor(data):
+        return data.detach().cpu().numpy()
+    elif isinstance(data, dict):
+        return {k: to_np_cpu(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [to_np_cpu(v) for v in data]
+    elif isinstance(data, tuple):
+        return tuple(to_np_cpu(v) for v in data)
+    else:
+        return data  # unchanged if not a tensor/list/dict/tuple
+
+
+
 class ImagePathDataset(Dataset):
     def __init__(self, image_paths, transform=None):
         """
