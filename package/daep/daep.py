@@ -9,7 +9,7 @@ import torch.distributions as dist
 
 class unimodaldaep(nn.Module):
     def __init__(self, encoder, score, MMD = MMD(), name = "flux",
-                prior = dist.Laplace, regularize = 0.01, 
+                prior = dist.Laplace, regularize = 0.0001, 
                 beta_1 = 1e-4, beta_T = 0.02, 
                 T = 1000
                 ):

@@ -14,13 +14,13 @@ n_imgs = len(png_files)
 n_train = int(n_imgs * 0.8)
 test_list = png_files[n_train:]
 test_data = ImagePathDataset(test_list)
-test_loader = DataLoader(test_data, batch_size = 10, collate_fn =  collate_fn_stack)
+test_loader = DataLoader(test_data, batch_size = 10, collate_fn =  collate_fn_stack,shuffle=True)
 
 x = to_device(next(iter(test_loader)))
 x_ori = copy.deepcopy(x)
 
 
-trained_daep = torch.load("../ckpt/ZTF_daep_4-4_lr0.00025_epoch75_reg0.01.pth",
+trained_daep = torch.load("../ckpt/ZTF_daep_16-8-64_lr0.00025_epoch200_batch256_reg0.0001.pth",
                          map_location=torch.device('cpu'), weights_only = False).to(device)
 
 recon = trained_daep.reconstruct(x)

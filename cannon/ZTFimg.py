@@ -20,7 +20,7 @@ import fire
 
 #breakpoint()
 
-def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, regularize = 0.01, patch = 3, batch = 256, save_every = 5):
+def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, model_dim = 64, encoder_layers = 4, decoder_layers = 4,regularize = 0.0001, patch = 3, batch = 256, save_every = 5):
 
     png_files = np.array(glob.glob("../data/ZTFBTS/hostImgs/*.png"))
     n_imgs = len(png_files)
@@ -33,11 +33,15 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, regulari
     img_encoder = HostImgTransceiverEncoder(img_size = 60,
                     bottleneck_length = bottlenecklen,
                     bottleneck_dim = bottleneckdim,
+                    model_dim = model_dim,
+                    num_layers = encoder_layers,
                     patch_size=patch).to(device)
 
     img_score = HostImgTransceiverScore(
         img_size = 60,
         bottleneck_dim = bottleneckdim,
+        model_dim = model_dim,
+        num_layers = decoder_layers,
         patch_size=patch
     ).to(device)
 
@@ -63,11 +67,11 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, regulari
         if (ep+1) % save_every == 0:
             if target_save is not None:
                 os.remove(target_save)
-            target_save = f"../ckpt/ZTF_daep_{bottlenecklen}-{bottleneckdim}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}.pth"
+            target_save = f"../ckpt/ZTF_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}.pth"
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig(f"./logs/ZTF_daep_{bottlenecklen}-{bottleneckdim}_lr{lr}_batch{batch}_reg{regularize}.png")
+            plt.savefig(f"./logs/ZTF_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_lr{lr}_batch{batch}_reg{regularize}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {this_epoch:.4f}") 
         
