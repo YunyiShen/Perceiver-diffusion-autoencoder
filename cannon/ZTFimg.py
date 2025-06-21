@@ -16,6 +16,7 @@ from daep.daep import unimodaldaep
 from tqdm import tqdm
 import os
 import fire
+import math
 
 
 #breakpoint()
@@ -62,7 +63,7 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, model_di
             optimizer.step()
             losses.append(loss.item())
         this_epoch = np.array(losses).mean().item()
-        epoch_loss.append(this_epoch)
+        epoch_loss.append(math.log(this_epoch))
         epoches.append(ep)
         if (ep+1) % save_every == 0:
             if target_save is not None:
@@ -73,7 +74,7 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, model_di
             plt.show()
             plt.savefig(f"./logs/ZTF_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_lr{lr}_batch{batch}_reg{regularize}.png")
             plt.close()
-        progress_bar.set_postfix(loss=f"epochs:{ep}, {this_epoch:.4f}") 
+        progress_bar.set_postfix(loss=f"epochs:{ep}, {math.log(this_epoch):.4f}") 
         
   
             
