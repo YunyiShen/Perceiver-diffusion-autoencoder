@@ -70,7 +70,7 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, regulari
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig("./logs/training_ZTFimg.png")
+            plt.savefig(f"./logs/ZTF_daep_{bottlenecklen}-{bottleneckdim}_lr{lr}_reg{regularize}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {this_epoch:.4f}") 
         
