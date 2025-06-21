@@ -7,6 +7,21 @@ import numpy as np
 import re
 from collections import defaultdict
 
+def to_device(data, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    """
+    Recursively moves all torch.Tensors in a nested structure to the given device.
+    Handles arbitrary nesting of dicts and lists (or tuples).
+    """
+    if torch.is_tensor(data):
+        return data.to(device)
+    elif isinstance(data, dict):
+        return {k: to_device(v, device) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [to_device(v, device) for v in data]
+    elif isinstance(data, tuple):
+        return tuple(to_device(v, device) for v in data)
+    else:
+        return data  # unchanged if not a tensor/list/dict/tuple
 
 class ImagePathDataset(Dataset):
     def __init__(self, image_paths, transform=None):
@@ -41,7 +56,7 @@ def multimodal_padding(list_of_modal_dict, supply = ["flux", "wavelength", "time
         tensor_keys = [*list_of_modal_dict[0][modal]] # e.g., flux, wavelength, phase etc
         this_modality = {}
         for tensor_key in tensor_keys:
-            padded_tensor = [this_dict[tensor_key] for this_dist in list_of_modal_dict]
+            padded_tensor = [this_dict[tensor_key] for this_dict in list_of_modal_dict]
             if tensor_key in supply:
                 if tensor_key == "mask_by":
                     length = torch.tensor([len(x) for x in padded_tensor])
@@ -90,7 +105,7 @@ class padding_collate_fun():
 
 
 
-def collate_fn_concat(batch):
+def collate_fn_stack(batch):
     """
     Collate function to be used in DataLoader when dataset returns dictionaries.
     Concatenates each key's values along the first dimension.
@@ -105,7 +120,7 @@ def collate_fn_concat(batch):
 
     # Convert list of values to tensors and concatenate
     for key in collated:
-        collated[key] = torch.cat(collated[key], dim=0)
+        collated[key] = torch.stack(collated[key], dim=0)
 
     return dict(collated)
 

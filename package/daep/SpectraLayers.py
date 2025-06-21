@@ -75,6 +75,7 @@ class spectraTransceiverScore(nn.Module):
                  selfattn
         )
         self.spectraEmbd = spectraEmbedding(model_dim, concat)
+        self.model_dim = model_dim
         
     
     def forward(self, x, bottleneck, aux):
@@ -129,6 +130,9 @@ class spectraTransceiverEncoder(nn.Module):
                  selfattn)
         
         self.spectraEmbd = spectraEmbedding(model_dim, concat)
+        self.model_dim = model_dim
+        self.bottleneck_length = bottleneck_length
+        self.bottleneck_dim = bottleneck_dim
 
     def forward(self, x):
         '''

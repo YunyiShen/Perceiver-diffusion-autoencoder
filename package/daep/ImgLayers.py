@@ -20,8 +20,8 @@ class ImgTokenizer(nn.Module):
         else:
             self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.num_patches, model_dim))
     
-    def forward(img):
-        image_embd = self.patch_embed(image)  # [B, N, D]
+    def forward(self, img):
+        image_embd = self.patch_embed(img)  # [B, N, D]
         image_embd = image_embd + self.pos_embed()  # [B, N, D]
         return image_embd
 
@@ -91,6 +91,8 @@ class HostImgTransceiverEncoder(nn.Module):
                  ff_dim, 
                  dropout, 
                  selfattn)
+        self.bottleneck_length = bottleneck_length
+        self.bottleneck_dim = bottleneck_dim
 
     def forward(self, x):
         '''
@@ -119,6 +121,7 @@ class HostImgTransceiverEncoder(nn.Module):
 # this is a score model instead of a direct decoder
 class HostImgTransceiverScore(nn.Module):
     def __init__(self,
+                 img_size,
                  bottleneck_dim,
                  patch_size=4,
                  in_channels=3,
@@ -152,6 +155,8 @@ class HostImgTransceiverScore(nn.Module):
         self.grid_size = img_size // patch_size  # e.g., 60//4 = 15
         self.num_patches = self.grid_size ** 2
         self.in_channels = in_channels
+        
+        self.model_dim = model_dim
 
         
 
@@ -174,9 +179,6 @@ class HostImgTransceiverScore(nn.Module):
                  selfattn
         )
 
-         # each token outputs a small image patch (flattened)
-        self.decoder = nn.Linear(model_dim, model_dim * patch_size * patch_size)
-
         # final CNN for smoothing
         mid_channels = model_dim * 4  # heuristic: scale with patch_size
 
@@ -197,11 +199,11 @@ class HostImgTransceiverScore(nn.Module):
         '''
         noisyImg = x.get("flux")
         B = bottleneck.size(0) # batchs
-        model_dim = self.decoder.model_dim
+        #model_dim = self.decoder.model_dim
         h = self.tokenizer(noisyImg)
         h = self.decoder(bottleneck, h, aux)
-        h = h.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, model_dim)
+        h = h.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, -1)
         h = h.permute(0, 5, 1, 3, 2, 4).contiguous()
-        h = h.view(B, model_dim, self.img_size, self.img_size)  # [B, C, H, W]
+        h = h.view(B, -1, self.img_size, self.img_size)  # [B, C, H, W]
         # final smoothing
         return self.final_refine(h)

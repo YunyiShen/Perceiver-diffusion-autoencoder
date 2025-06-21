@@ -90,6 +90,8 @@ class photometricTransceiverScore(nn.Module):
             self.photometry_embd = photometryEmbeddingConcat(num_bands, model_dim)
         else:
             self.photometry_embd = photometryEmbedding(num_bands, model_dim)
+        self.model_dim = model_dim
+        self.bottleneck_dim = bottleneck_dim
     
     def forward(self, x, bottleneck, aux):
         '''
@@ -148,6 +150,9 @@ class photometricTransceiverEncoder(nn.Module):
             self.photometry_embd = photometryEmbeddingConcat(num_bands, model_dim)
         else:
             self.photometry_embd = photometryEmbedding(num_bands, model_dim)
+        self.model_dim = model_dim
+        self.bottleneck_length = bottleneck_length
+        self.bottleneck_dim = bottleneck_dim
 
     def forward(self, x):
         '''
