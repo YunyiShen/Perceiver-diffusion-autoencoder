@@ -20,17 +20,14 @@ import fire
 
 #breakpoint()
 
-def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, regularize = 0.01, patch = 3, save_every = 5):
+def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, regularize = 0.01, patch = 3, batch = 256, save_every = 5):
 
     png_files = np.array(glob.glob("../data/ZTFBTS/hostImgs/*.png"))
     n_imgs = len(png_files)
     n_train = int(n_imgs * 0.8)
     training_list = png_files[:n_train]
     training_data = ImagePathDataset(training_list.tolist())
-    test_list = png_files[n_train:]
-    test_data = ImagePathDataset(test_list)
-    training_loader = DataLoader(training_data, batch_size = 64, collate_fn = collate_fn_stack)
-    test_loader = DataLoader(test_data, batch_size = 8, collate_fn =  collate_fn_stack)
+    training_loader = DataLoader(training_data, batch_size = batch, collate_fn = collate_fn_stack)
 
 
     img_encoder = HostImgTransceiverEncoder(img_size = 60,
@@ -66,11 +63,11 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, regulari
         if (ep+1) % save_every == 0:
             if target_save is not None:
                 os.remove(target_save)
-            target_save = f"../ckpt/ZTF_daep_{bottlenecklen}-{bottleneckdim}_lr{lr}_epoch{ep+1}_reg{regularize}.pth"
+            target_save = f"../ckpt/ZTF_daep_{bottlenecklen}-{bottleneckdim}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}.pth"
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig(f"./logs/ZTF_daep_{bottlenecklen}-{bottleneckdim}_lr{lr}_reg{regularize}.png")
+            plt.savefig(f"./logs/ZTF_daep_{bottlenecklen}-{bottleneckdim}_lr{lr}_batch{batch}_reg{regularize}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {this_epoch:.4f}") 
         
