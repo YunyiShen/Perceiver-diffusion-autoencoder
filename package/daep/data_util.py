@@ -32,6 +32,63 @@ class ImagePathDataset(Dataset):
         return {"flux": image}
 
 
+from torch.nn.utils.rnn import pad_sequence
+
+def multimodal_padding(list_of_modal_dict, supply = ["flux", "wavelength", "time"], mask_by = "flux", max_len = None):
+    modalities = [*list_of_modal_dict[0]] # img, spectra etc.
+    res = {}
+    for modal in modalities:
+        tensor_keys = [*list_of_modal_dict[0][modal]] # e.g., flux, wavelength, phase etc
+        this_modality = {}
+        for tensor_key in tensor_keys:
+            padded_tensor = [this_dict[tensor_key] for this_dist in list_of_modal_dict]
+            if tensor_key in supply:
+                if tensor_key == "mask_by":
+                    length = torch.tensor([len(x) for x in padded_tensor])
+                    max_len = length.max()
+                    mask = torch.arange(max_len)[None, :] >= length[:, None]
+                    this_modality['mask'] = mask
+                padded_tensor = pad_sequence(padded_tensor, batch_first = True, padding_value = 0)
+            else:
+                padded_tensor = torch.concatenate(padded_tensor, axis = 0)
+            this_modality[tensor_key] = padded_tensor
+        res[modal] = this_modality
+    return res
+
+
+def unimodal_padding(list_of_modal_dict, supply = ['flux', 'wavelength', 'time'], mask_by = "flux"):
+    tensor_keys = [*list_of_modal_dict[0]] # e.g., flux, wavelength, phase etc
+    this_modality = {}
+    for tensor_key in tensor_keys:
+        padded_tensor = [this_dict[tensor_key] for this_dist in list_of_modal_dict]
+        if tensor_key in supply:
+            if tensor_key == "mask_by":
+                length = torch.tensor([len(x) for x in padded_tensor])
+                max_len = length.max()
+                mask = torch.arange(max_len)[None, :] >= length[:, None]
+                this_modality['mask'] = mask
+            padded_tensor = pad_sequence(padded_tensor, batch_first = True, padding_value = 0)
+        else:
+            padded_tensor = torch.concatenate(padded_tensor, axis = 0)
+        this_modality[tensor_key] = padded_tensor
+    return this_modality
+
+
+class padding_collate_fun():
+    def __init__(supply = ['flux', 'wavelength', 'time'], mask_by = "flux", multimodal = False):
+        self.supply = supply
+        self.mask_by = mask_by
+        self.multimodal
+    
+    def __call__(batch):
+        if self.multimodal:
+            return multimodal_padding(batch, self.supply, self.mask_by)
+        return unimodal_padding(batch, self.supply, self.mask_by)
+
+
+
+
+
 
 def collate_fn_concat(batch):
     """
@@ -52,32 +109,5 @@ def collate_fn_concat(batch):
 
     return dict(collated)
 
-
-
-def collate_fn_nested_concat(batch):
-    """
-    Collate function for nested dictionaries where each sample is:
-    {
-        'modal1': {'img': tensor},
-        'modal2': {'flux': tensor, 'time': tensor},
-        ...
-    }
-    Concatenates all leaf tensors across batch dimension (dim=0).
-    """
-    from collections import defaultdict
-    import torch
-
-    collated = defaultdict(lambda: defaultdict(list))
-
-    for sample in batch:
-        for modality, fields in sample.items():
-            for key, value in fields.items():
-                collated[modality][key].append(value)
-
-    # Concatenate along batch dimension
-    for modality in collated:
-        for key in collated[modality]:
-            collated[modality][key] = torch.cat(collated[modality][key], dim=0)
-
-    return dict(collated)    
+ 
 
