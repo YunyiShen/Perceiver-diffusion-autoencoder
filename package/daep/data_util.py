@@ -90,7 +90,7 @@ def unimodal_padding(list_of_modal_dict, supply = ['flux', 'wavelength', 'time']
     tensor_keys = [*list_of_modal_dict[0]] # e.g., flux, wavelength, phase etc
     this_modality = {}
     for tensor_key in tensor_keys:
-        padded_tensor = [this_dict[tensor_key] for this_dist in list_of_modal_dict]
+        padded_tensor = [this_dict[tensor_key] for this_dict in list_of_modal_dict]
         if tensor_key in supply:
             if tensor_key == "mask_by":
                 length = torch.tensor([len(x) for x in padded_tensor])
@@ -105,12 +105,12 @@ def unimodal_padding(list_of_modal_dict, supply = ['flux', 'wavelength', 'time']
 
 
 class padding_collate_fun():
-    def __init__(supply = ['flux', 'wavelength', 'time'], mask_by = "flux", multimodal = False):
+    def __init__(self, supply = ['flux', 'wavelength', 'time'], mask_by = "flux", multimodal = False):
         self.supply = supply
         self.mask_by = mask_by
         self.multimodal
     
-    def __call__(batch):
+    def __call__(self, batch):
         if self.multimodal:
             return multimodal_padding(batch, self.supply, self.mask_by)
         return unimodal_padding(batch, self.supply, self.mask_by)
