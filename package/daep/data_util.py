@@ -156,7 +156,7 @@ class padding_collate_fun():
     def __init__(self, supply = ['flux', 'wavelength', 'time'], mask_by = "flux", multimodal = False):
         self.supply = supply
         self.mask_by = mask_by
-        self.multimodal
+        self.multimodal = multimodal
     
     def __call__(self, batch):
         if self.multimodal:
