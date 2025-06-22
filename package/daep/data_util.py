@@ -87,10 +87,32 @@ class ImagePathDataset(Dataset):
             image = self.transform(image)
         return {"flux": image}
 
+class SpectraDatasetFromnp(Dataset):
+    def __init__(self, flux, wavelength, phase, mask = None):
+        self.flux = torch.tensor(flux)
+        self.wavelength = torch.tensor(wavelength)
+        self.phase = torch.tensor(phase)
+        self.mask = torch.tensor(mask) if mask is not None else mask
+    
+    def __len__(self):
+        return len(self.flux)
+
+    def __getitem__(self, idx):
+        if self.mask is None:
+            res = {"flux": self.flux[idx], "wavelength": self.wavelength[idx], "phase": self.phase[idx]}
+        res['mask'] = self.mask[idx]
+        return res
+
+
+
+
+
+
 
 from torch.nn.utils.rnn import pad_sequence
 
-def multimodal_padding(list_of_modal_dict, supply = ["flux", "wavelength", "time"], mask_by = "flux", max_len = None):
+def multimodal_padding(list_of_modal_dict, supply = ["flux", "wavelength", "time", "band"], 
+                       mask_by = "flux", max_len = None):
     modalities = [*list_of_modal_dict[0]] # img, spectra etc.
     res = {}
     for modal in modalities:
@@ -98,34 +120,34 @@ def multimodal_padding(list_of_modal_dict, supply = ["flux", "wavelength", "time
         this_modality = {}
         for tensor_key in tensor_keys:
             padded_tensor = [this_dict[tensor_key] for this_dict in list_of_modal_dict]
-            if tensor_key in supply:
-                if tensor_key == "mask_by":
+            if tensor_key in supply and "mask" not in tensor_keys: # we do not pad if mask is given
+                if tensor_key == mask_by:
                     length = torch.tensor([len(x) for x in padded_tensor])
                     max_len = length.max()
                     mask = torch.arange(max_len)[None, :] >= length[:, None]
                     this_modality['mask'] = mask
                 padded_tensor = pad_sequence(padded_tensor, batch_first = True, padding_value = 0)
             else:
-                padded_tensor = torch.concatenate(padded_tensor, axis = 0)
+                padded_tensor = torch.stack(padded_tensor, axis = 0)
             this_modality[tensor_key] = padded_tensor
         res[modal] = this_modality
     return res
 
 
-def unimodal_padding(list_of_modal_dict, supply = ['flux', 'wavelength', 'time'], mask_by = "flux"):
+def unimodal_padding(list_of_modal_dict, supply = ['flux', 'wavelength', 'time', "band"], mask_by = "flux"):
     tensor_keys = [*list_of_modal_dict[0]] # e.g., flux, wavelength, phase etc
     this_modality = {}
     for tensor_key in tensor_keys:
         padded_tensor = [this_dict[tensor_key] for this_dict in list_of_modal_dict]
-        if tensor_key in supply:
-            if tensor_key == "mask_by":
+        if tensor_key in supply and "mask" not in tensor_keys:
+            if tensor_key == mask_by:
                 length = torch.tensor([len(x) for x in padded_tensor])
                 max_len = length.max()
                 mask = torch.arange(max_len)[None, :] >= length[:, None]
                 this_modality['mask'] = mask
             padded_tensor = pad_sequence(padded_tensor, batch_first = True, padding_value = 0)
         else:
-            padded_tensor = torch.concatenate(padded_tensor, axis = 0)
+            padded_tensor = torch.stack(padded_tensor, axis = 0)
         this_modality[tensor_key] = padded_tensor
     return this_modality
 
