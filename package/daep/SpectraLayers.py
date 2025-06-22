@@ -91,9 +91,12 @@ class spectraTransceiverScore(nn.Module):
         '''
         flux, wavelength, phase, mask = x['flux'] ,x['wavelength'], x['phase'], x['mask']
         x = self.spectraEmbd(wavelength, flux, phase)
-        aux = torch.cat((x[:, -1,:][:, None, :], aux), axis = 1) # aux has original aux (diffusion time usually) and phase embedding
+        if aux is not None:
+            aux = torch.cat((x[:, -1,:][:, None, :], aux), axis = 1) # aux has original aux (diffusion time usually) and phase embedding
+        else:
+            aux = x[:, -1,:][:, None, :]
         x = x[:, :-1, :]
-        return self.decoder(bottleneck, x, aux, mask).squeeze(-1) # residual connection
+        return self.decoder(bottleneck, x, aux, mask).squeeze(-1) 
 
 # this will generate bottleneck, in encoder
 class spectraTransceiverEncoder(nn.Module):

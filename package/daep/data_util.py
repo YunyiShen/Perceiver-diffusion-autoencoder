@@ -98,9 +98,10 @@ class SpectraDatasetFromnp(Dataset):
         return len(self.flux)
 
     def __getitem__(self, idx):
-        if self.mask is None:
-            res = {"flux": self.flux[idx], "wavelength": self.wavelength[idx], "phase": self.phase[idx]}
-        res['mask'] = self.mask[idx]
+        
+        res = {"flux": self.flux[idx], "wavelength": self.wavelength[idx], "phase": self.phase[idx]}
+        if self.mask is not None:
+            res['mask'] = self.mask[idx]
         return res
 
 
