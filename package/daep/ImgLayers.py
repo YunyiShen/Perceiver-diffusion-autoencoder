@@ -16,13 +16,14 @@ class ImgTokenizer(nn.Module):
         self.model_dim = model_dim
         self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, model_dim)
         if sincosin:
-            self.pos_embed = SinusoidalPositionalEmbedding2D(model_dim, img_size//patch_size,img_size//patch_size)
+            pos_embed = SinusoidalPositionalEmbedding2D(model_dim, img_size//patch_size,img_size//patch_size)._build_embedding()
+            self.register_buffer('pos_embed', pos_embed, persistent=False)
         else:
             self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.num_patches, model_dim))
     
     def forward(self, img):
         image_embd = self.patch_embed(img)  # [B, N, D]
-        image_embd = image_embd + self.pos_embed()  # [B, N, D]
+        image_embd = image_embd + self.pos_embed  # [B, N, D]
         return image_embd
 
 
@@ -66,7 +67,8 @@ class HostImgTransceiverEncoder(nn.Module):
         self.model_dim = model_dim
         self.patch_embed = PatchEmbedding(img_size, patch_size, in_channels, model_dim)
         if sincosin:
-            self.pos_embed = SinusoidalPositionalEmbedding2D(model_dim, img_size//patch_size,img_size//patch_size)
+            pos_embed = SinusoidalPositionalEmbedding2D(model_dim, img_size//patch_size,img_size//patch_size)._build_embedding()
+            self.register_buffer('pos_embed', pos_embed, persistent=False)
         else:
             self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.num_patches, model_dim))
         if self.focal_loc:
@@ -106,7 +108,7 @@ class HostImgTransceiverEncoder(nn.Module):
         image = x.get("flux")
         image_embd = self.patch_embed(image)  # [B, N, D]
         #breakpoint()
-        image_embd = image_embd + self.pos_embed()  # [B, N, D]
+        image_embd = image_embd + self.pos_embed  # [B, N, D]
         if self.focal_loc:
             if event_loc is not None:
                 event_loc_embd = self.eventloc_embd(event_loc) # [B, 2, D]
