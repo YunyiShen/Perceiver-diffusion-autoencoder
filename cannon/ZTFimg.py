@@ -10,7 +10,7 @@ from torch.optim import AdamW
 
 from matplotlib import pyplot as plt
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-from daep.data_util import ImagePathDataset, collate_fn_stack, to_device
+from daep.data_util import ImagePathDataset, collate_fn_stack, to_device, ImagePathDatasetAug
 from daep.ImgLayers import HostImgTransceiverEncoder, HostImgTransceiverScore
 from daep.daep import unimodaldaep
 from tqdm import tqdm
@@ -21,13 +21,13 @@ import math
 
 #breakpoint()
 
-def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, model_dim = 64, encoder_layers = 4, decoder_layers = 4,regularize = 0.0001, patch = 3, batch = 256, save_every = 5):
+def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, model_dim = 64, encoder_layers = 4, decoder_layers = 4,regularize = 0.0001, patch = 3, batch = 256, aug = 5,save_every = 5):
 
     png_files = np.array(glob.glob("../data/ZTFBTS/hostImgs/*.png"))
     n_imgs = len(png_files)
     n_train = int(n_imgs * 0.8)
     training_list = png_files[:n_train]
-    training_data = ImagePathDataset(training_list.tolist())
+    training_data = ImagePathDatasetAug(training_list.tolist(), factor = aug)
     training_loader = DataLoader(training_data, batch_size = batch, collate_fn = collate_fn_stack)
 
 
@@ -68,11 +68,11 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, model_di
         if (ep+1) % save_every == 0:
             if target_save is not None:
                 os.remove(target_save)
-            target_save = f"../ckpt/ZTF_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}.pth"
+            target_save = f"../ckpt/ZTF_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig(f"./logs/ZTF_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_lr{lr}_batch{batch}_reg{regularize}.png")
+            plt.savefig(f"./logs/ZTF_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_lr{lr}_batch{batch}_reg{regularize}_aug{aug}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {math.log(this_epoch):.4f}") 
         

@@ -36,7 +36,33 @@ def to_np_cpu(data):
     else:
         return data  # unchanged if not a tensor/list/dict/tuple
 
+class ImagePathDatasetAug(Dataset):
+    def __init__(self, image_paths, transform=None, factor = 10):
+        """
+        Args:
+            image_paths (list of str): List of image file paths.
+            transform (callable, optional): Transform to apply to each image.
+        """
+        self.factor = factor
+        self.image_paths = image_paths
+        self.transform = transform or transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            #transforms.RandomRotation(20),
+            transforms.RandomAffine(degrees = 15, translate = (0.05,0.05), scale = (0.75,1.25)),
+            transforms.ToTensor(), 
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])]) 
 
+    def __len__(self):
+        return len(self.image_paths) * self.factor
+
+    def __getitem__(self, idx):
+        idx = idx % len(self.image_paths)
+        img_path = self.image_paths[idx]
+        image = Image.open(img_path).convert('RGB')  # Convert to RGB
+        if self.transform:
+            image = self.transform(image)
+        return {"flux": image}
 
 class ImagePathDataset(Dataset):
     def __init__(self, image_paths, transform=None):

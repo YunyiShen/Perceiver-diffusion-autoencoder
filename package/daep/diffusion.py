@@ -44,7 +44,7 @@ class GaussianDiffusionTrainer(nn.Module):
             extract(self.sqrt_alphas_bar, t, x_0[name].shape) * x_0[name] +
             extract(self.sqrt_one_minus_alphas_bar, t, x_0[name].shape) * noise)
         #breakpoint()
-        loss = F.mse_loss(model(x_t, t.float()[:, None]/self.T, cond), noise, reduction='none')
+        loss = F.mse_loss(model(x_t, t.float()[:, None], cond), noise, reduction='none')
         del x_t
         return loss
 
@@ -133,14 +133,14 @@ class GaussianDiffusionSampler(nn.Module):
 
         # Mean parameterization
         if self.mean_type == 'xprev':       # the model predicts x_{t-1}
-            x_prev = model(x_t, t.float()[:, None]/self.T, cond)
+            x_prev = model(x_t, t.float()[:, None], cond)
             x_0 = self.predict_xstart_from_xprev(x_t, t.float(), xprev=x_prev, name = name)
             model_mean = x_prev
         elif self.mean_type == 'xstart':    # the model predicts x_0
-            x_0 = model(x_t, t.float()[:, None]/self.T, cond)
+            x_0 = model(x_t, t.float()[:, None], cond)
             model_mean, _ = self.q_mean_variance(x_0, x_t, t, name)
         elif self.mean_type == 'epsilon':   # the model predicts epsilon
-            eps = model(x_t, t.float()[:, None]/self.T, cond)
+            eps = model(x_t, t.float()[:, None], cond)
             x_0 = self.predict_xstart_from_eps(x_t, t, eps=eps, name = name)
             model_mean, _ = self.q_mean_variance(x_0, x_t, t, name)
         else:
