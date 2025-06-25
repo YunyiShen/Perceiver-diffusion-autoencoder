@@ -165,50 +165,64 @@ class GaussianDiffusionSampler(nn.Module):
         x_0 = x_t
         return x_0
     
-    def ddim_sample(self, model, x_T, eta=0.0, cond=None, mask=None, steps=None):
+    def ddim_sample(self, model, x_T, cond=None, name="flux", eta=0.0, steps=None):
         """
-        DDIM sampling loop: deterministic or stochastic depending on eta.
+        DDIM sampling loop. Deterministic if eta=0.
         Args:
-            model: the trained noise-predicting model
-            x_T: starting noise sample
-            eta: level of noise (eta=0 = deterministic DDIM)
-            steps: optional number of sampling steps (if None, use full T)
+            model: noise-predicting model
+            x_T: dictionary with keys like {'flux': tensor}
+            eta: 0.0 for deterministic DDIM, >0.0 adds noise
+            cond: conditional context
+            name: key to use in x_T dictionary
+            steps: number of DDIM steps (defaults to full T)
         Returns:
-            x_0: final denoised sample
+            x_0: dictionary with denoised sample at x_0[name]
         """
-        assert self.mean_type == 'epsilon', "DDIM sampling requires model to predict epsilon"
+        assert self.mean_type == 'epsilon', "DDIM requires epsilon prediction"
         if steps is None:
             steps = self.T
 
-        # Setup sampling schedule
-        step_indices = torch.linspace(0, self.T - 1, steps, dtype=torch.long)
-        x_t = x_T
+        device = x_T[name].device
+        betas = self.betas
+        alphas = 1. - betas
+        alphas_bar = torch.cumprod(alphas, dim=0)  # \bar{alpha}_t
 
-        for i in reversed(range(steps)):
-            t = step_indices[i].item()
-            t_int = torch.full((x_T.shape[0],), int(t), dtype=torch.long, device=x_T.device)
+        step_indices = torch.linspace(0, self.T - 1, steps, dtype=torch.long, device=device)
+        x_t = {k: v.clone() for k, v in x_T.items()}  # deep copy
 
-            # Predict noise
-            eps = model(x_t, t_int.float(), cond, mask)
-            alpha_bar_t = extract(torch.cumprod(1. - self.betas, dim=0), t_int, x_t[name].shape)
+        for i in tqdm(reversed(range(steps))):
+            t = step_indices[i].long()
+            t_batch = t.expand(x_t[name].shape[0]).to(device)
+
+            # Predict epsilon (noise)
+            eps = model(x_t, t_batch.float().unsqueeze(1), cond)
+
+            alpha_bar_t = extract(alphas_bar, t_batch, x_t[name].shape)
+            sqrt_alpha_bar = torch.sqrt(alpha_bar_t)
+            sqrt_one_minus_alpha_bar = torch.sqrt(1 - alpha_bar_t)
 
             # Predict x0
-            x0 = (x_t - torch.sqrt(1 - alpha_bar_t) * eps) / torch.sqrt(alpha_bar_t)
-            x0 = torch.clip(x0, -1., 1.)
+            x0_pred = (x_t[name] - sqrt_one_minus_alpha_bar * eps) / sqrt_alpha_bar
 
             if i == 0:
-                x_t = x0
+                x_t[name] = x0_pred
                 break
 
-            t_prev = step_indices[i - 1].item()
-            t_prev_int = torch.full_like(t_int, int(t_prev))
-            alpha_bar_prev = extract(torch.cumprod(1. - self.betas, dim=0), t_prev_int, x_t[name].shape)
+            # Next timestep
+            t_prev = step_indices[i - 1].long()
+            t_prev_batch = t_prev.expand(x_t[name].shape[0]).to(device)
+            alpha_bar_prev = extract(alphas_bar, t_prev_batch, x_t[name].shape)
 
-            sigma = eta * torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar_t) * (1 - alpha_bar_t / alpha_bar_prev))
-            noise = torch.randn_like(x_t) if eta > 0 else 0.0
+            sigma = eta * torch.sqrt(
+                (1 - alpha_bar_prev) / (1 - alpha_bar_t) *
+                (1 - alpha_bar_t / alpha_bar_prev)
+            )
 
-            x_t = (
-                torch.sqrt(alpha_bar_prev) * x0 +
+            noise = torch.randn_like(x_t[name]) if eta > 0 else 0.0
+
+            # DDIM update rule
+            x_t[name] = (
+                torch.sqrt(alpha_bar_prev) * x0_pred +
                 torch.sqrt(1 - alpha_bar_prev - sigma**2) * eps +
                 sigma * noise
             )

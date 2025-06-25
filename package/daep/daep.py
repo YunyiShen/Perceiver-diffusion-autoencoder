@@ -50,16 +50,18 @@ class unimodaldaep(nn.Module):
 
         return mmd_loss + score_matching_loss
     
-    def sample(self, z, x_T):
+    def sample(self, z, x_T, ddim = False, ddim_steps = 200):
         self.eval()
         with torch.no_grad():
+            if ddim:
+                return self.diffusion_sampler.ddim_sample(self.score, x_T, z, self.name, steps=ddim_steps)
             return self.diffusion_sampler(self.score, x_T, z, self.name)
     
 
-    def reconstruct(self, x_0):
+    def reconstruct(self, x_0, ddim = False, ddim_steps = 200):
         name = self.name
         z = self.encode(x_0)
         noise = torch.randn_like(x_0[name]).to(x_0[name].device)
         x_t = x_0
         x_t[name] = noise
-        return self.sample(z, x_t)
+        return self.sample(z, x_t, ddim, ddim_steps)
