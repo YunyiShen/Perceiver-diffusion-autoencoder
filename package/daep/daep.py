@@ -6,9 +6,13 @@ from .diffusion import GaussianDiffusionTrainer, GaussianDiffusionSampler
 from .util_layers import SinusoidalMLPPositionalEmbedding
 from .mmd import RBF, MMD
 import torch.distributions as dist
+import random
+import torch
+
+
 
 class unimodaldaep(nn.Module):
-    def __init__(self, encoder, score, MMD = MMD(), name = "flux",
+    def __init__(self, encoder, score, MMD = None, name = "flux",
                 prior = dist.Laplace, regularize = 0.0001, 
                 beta_1 = 1e-4, beta_T = 0.02, 
                 T = 1000
@@ -22,11 +26,12 @@ class unimodaldaep(nn.Module):
         self.MMD = MMD
         self.latent_len = encoder.bottleneck_length
         self.latent_dim = encoder.bottleneck_dim
-        self.prior = prior
-        self.prior_params = nn.ParameterList([
-            nn.Parameter(torch.zeros(self.latent_len, self.latent_dim), requires_grad=False),  # mu
-            nn.Parameter(torch.ones(self.latent_len, self.latent_dim), requires_grad=True)  # logvar
-        ])
+        if MMD is not None and prior is not None:
+            self.prior = prior
+            self.prior_params = nn.ParameterList([
+                nn.Parameter(torch.zeros(self.latent_len, self.latent_dim), requires_grad=False),  # mu
+                nn.Parameter(torch.ones(self.latent_len, self.latent_dim), requires_grad=True)  # logvar
+            ])
         self.regularize = regularize
         self.name = name
     
@@ -43,9 +48,11 @@ class unimodaldaep(nn.Module):
     
     def forward(self, x):
         z = self.encode(x)
-        qz_x = self.prior(*self.prior_params).rsample([z.shape[0]]).to(z.device)
-
-        mmd_loss = self.regularize * self.MMD(z.reshape(z.shape[0], -1), qz_x.reshape(z.shape[0], -1))
+        if self.MMD is not None and self.prior is not None:
+            qz_x = self.prior(*self.prior_params).rsample([z.shape[0]]).to(z.device)
+            mmd_loss = self.regularize * self.MMD(z.reshape(z.shape[0], -1), qz_x.reshape(z.shape[0], -1))
+        else:
+            mmd_loss = 0.0
         score_matching_loss = self.diffusion_trainer(self.score, x, z, self.name).mean()
 
         return mmd_loss + score_matching_loss
@@ -65,3 +72,119 @@ class unimodaldaep(nn.Module):
         x_t = x_0
         x_t[name] = noise
         return self.sample(z, x_t, ddim, ddim_steps)
+
+
+def modality_drop(keys, p_drop=0.2, drop_all=False):
+    """
+    Randomly drops modalities from a batch during training.
+    
+    Args:
+        keys: modality keys
+        p_drop: probability of dropping each modality
+        drop_all: if False, ensures at least one modality is retained
+    Returns:
+        a list of kept modalities
+    """
+    present_modalities = list(keys)
+
+    # Decide for each modality whether to drop
+    drop_decisions = {
+        m: (random.random() < p_drop)
+        for m in present_modalities
+    }
+
+    # Optionally ensure at least one modality is retained
+    if not drop_all and all(drop_decisions.values()):
+        keep_one = random.choice(present_modalities)
+        drop_decisions[keep_one] = False
+
+    return [m for m in present_modalities if not drop_decisions[m]]
+
+
+class multimodaldaep(nn.Module):
+    def __init__(self, tokenizers, encoder, scores, measurement_names, 
+                 modality_dropping_during_training = lambda x: x,
+                 beta_1 = 1e-4, beta_T = 0.02, 
+                 T = 1000):
+        '''
+        Args:
+            tokenizers: {modality: tokenizer} that should share the same out put dimension (can be different seqlen)
+            encoder: a sngle perceiver encoder
+            scores: {modality: score}
+            modality_dropping_during_training: a callable making a copy of the data that conditioning will only be based on them
+        '''
+        super().__init__()
+        assert set(tokenizers.keys()) == set(scores.keys()) and set(tokenizers.keys()) == set(measurement_names.keys()), "modality keys have to match"
+        self.modalities = tokenizers.keys()
+        modeldims = [score.model_dim for score in scores.values()] + [tokenizer.model_dim for tokenizer in tokenizers.values()] + [encoder.model_dim]
+        assert min(modeldims) == max(modeldims), "model_dims have to match for this implementation"
+        
+        self.tokenizers = nn.ModuleDict(tokenizers)
+        self.encoder = encoder
+        self.scores = nn.ModuleDict(scores)
+        self.names = measurement_names
+        self.modality_dropping_during_training = modality_dropping_during_training
+        
+        self.model_dim = min(modeldims)
+        
+        self.diffusion_time_embd = SinusoidalMLPPositionalEmbedding(scores[0].model_dim)
+        self.diffusion_trainer = GaussianDiffusionTrainer(beta_1, beta_T, T)
+        self.diffusion_sampler = GaussianDiffusionSampler(beta_1, beta_T, T)
+        self.MMD = MMD
+        self.latent_len = encoder.bottleneck_length
+        self.latent_dim = encoder.bottleneck_dim
+        
+        self.modalityEmbedding = nn.ParameterDict({key: nn.Parameter(torch.randn(1, 1, self.model_dim)) for key in tokenizers.keys()})
+        
+        
+    
+    def encode(self, x, keys = None):
+        '''
+        Here we assume the x has a multiple layer structure like
+        {modality1: {flux: tensor, time: tensor, ...}, ...}
+        
+        '''
+        keys = keys if keys is not None else x.keys()
+        tokens = [self.tokenizers[key](x[key]) + self.modalityEmbedding[key] for key in keys]
+        
+        
+        
+        return self.encoder(torch.concat(tokens, axis = 1))
+    
+    
+    def forward(self, x):
+        z = self.encode(x, skeys = self.modality_dropping_during_training(x.keys())) # modality dropping
+        if self.MMD is not None and self.prior is not None:
+            qz_x = self.prior(*self.prior_params).rsample([z.shape[0]]).to(z.device)
+            mmd_loss = self.regularize * self.MMD(z.reshape(z.shape[0], -1), qz_x.reshape(z.shape[0], -1))
+        else:
+            mmd_loss = 0.0
+        score_matching_loss = sum([self.diffusion_trainer(self.scores[key], x[key], z, self.names[key]).mean() for key in x.keys()])
+
+        return mmd_loss + score_matching_loss
+    
+    
+    def sample(self, z, x_T, score, name, ddim = True, ddim_steps = 200):
+        self.eval()
+        with torch.no_grad():
+            if ddim:
+                return self.diffusion_sampler.ddim_sample(score, x_T, z, name, steps=ddim_steps)
+            return self.diffusion_sampler(score, x_T, z, name)
+    
+
+    def reconstruct(self, x_0, condition_keys = None, out_keys = None, ddim = True, ddim_steps = 200):
+        if condition_keys is None:
+            condition_keys = x_0.keys()
+        if out_keys is None:
+            out_keys = x_0.keys()
+        z = self.encode(x_0, condition_keys)
+        
+        x_t = x_0
+        res = {}
+        
+        for key in out_keys:
+            noise = [torch.randn_like(x_0[key][self.names[key]]).to(x_0[key][self.names[key]].device)]
+        
+            x_t[key][self.names[key]] = noise
+            res[key] = self.sample(z, x_t[key], self.scores[key], self.names[key], ddim, ddim_steps)
+        return res
