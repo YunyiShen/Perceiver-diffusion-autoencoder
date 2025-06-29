@@ -106,7 +106,34 @@ class SpectraDatasetFromnp(Dataset):
 
 
 
+class PhotoSpectraDatasetFromnp(Dataset):
+    def __init__(self, flux, wavelength, phase, 
+                 photoflux, phototime, photoband
+                 ,mask = None, photomask = None):
+        self.flux = torch.tensor(flux)
+        self.wavelength = torch.tensor(wavelength)
+        self.phase = torch.tensor(phase)
+        self.mask = torch.tensor(mask) if mask is not None else mask
+        
+        self.photoflux = torch.tensor(photoflux)
+        self.phototime = torch.tensor(phototime)
+        self.photoband = torch.tensor(photoband, dtype = torch.long)
+        self.photomask = torch.tensor(photomask) if photomask is not None else photomask
+    
+    def __len__(self):
+        return len(self.flux)
 
+    def __getitem__(self, idx):
+        
+        res = {"flux": self.flux[idx], "wavelength": self.wavelength[idx], "phase": self.phase[idx]}
+        if self.mask is not None:
+            res['mask'] = self.mask[idx]
+        
+        
+        photores = {"flux": self.photoflux[idx], "phototime": self.phototime[idx], "photoband": self.photoband[idx]}
+        if self.photomask is not None:
+            photores['mask'] = self.mask[idx]
+        return {"spectra": res, "photometry": photores}
 
 
 
