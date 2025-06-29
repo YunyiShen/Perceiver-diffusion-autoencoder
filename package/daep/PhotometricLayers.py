@@ -9,6 +9,14 @@ from .Perceiver import PerceiverEncoder, PerceiverDecoder
 ###############################
 # Transceivers for LC data
 ###############################
+class timebandEmbedding(nn.Module):
+    def __init__(self, num_bands = 6, model_dim = 32):
+        super(timebandEmbedding, self).__init__()
+        self.time_embd = SinusoidalMLPPositionalEmbedding(model_dim)
+        self.bandembd = nn.Embedding(num_bands, model_dim)
+    
+    def forward(self, time, band):
+        return self.time_embd(time) + self.bandembd(band)
 
 class photometryEmbedding(nn.Module):
     def __init__(self, num_bands = 6, model_dim = 32):
