@@ -115,7 +115,7 @@ class multimodaldaep(nn.Module):
         '''
         super().__init__()
         assert set(tokenizers.keys()) == set(scores.keys()) and set(tokenizers.keys()) == set(measurement_names.keys()), "modality keys have to match"
-        self.modalities = tokenizers.keys()
+        self.modalities = [*tokenizers.keys()]
         modeldims = [score.model_dim for score in scores.values()] + [tokenizer.model_dim for tokenizer in tokenizers.values()] + [encoder.model_dim]
         assert min(modeldims) == max(modeldims), "model_dims have to match for this implementation"
         
