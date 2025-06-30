@@ -115,7 +115,8 @@ class photometricTransceiverScore(nn.Module):
         '''
         flux, time, band, mask = x['flux'], x['time'], x['band'], x['mask']
         x = self.photometry_embd(flux, time, band)
-        return self.Score(bottleneck, x, aux, mask).squeeze(-1)
+        #breakpoint()
+        return self.Decoder(bottleneck, x, aux, mask).squeeze(-1)
          
 
 # this will generate bottleneck, in encoder

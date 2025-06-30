@@ -127,10 +127,9 @@ class multimodaldaep(nn.Module):
         
         self.model_dim = min(modeldims)
         
-        self.diffusion_time_embd = SinusoidalMLPPositionalEmbedding(scores[0].model_dim)
+        self.diffusion_time_embd = SinusoidalMLPPositionalEmbedding(self.model_dim)
         self.diffusion_trainer = GaussianDiffusionTrainer(beta_1, beta_T, T)
         self.diffusion_sampler = GaussianDiffusionSampler(beta_1, beta_T, T)
-        self.MMD = MMD
         self.latent_len = encoder.bottleneck_length
         self.latent_dim = encoder.bottleneck_dim
         
@@ -145,6 +144,7 @@ class multimodaldaep(nn.Module):
         
         '''
         keys = keys if keys is not None else x.keys()
+        #breakpoint()
         tokens = [self.tokenizers[key](x[key]) + self.modalityEmbedding[key] for key in keys]
         
         
@@ -152,16 +152,23 @@ class multimodaldaep(nn.Module):
         return self.encoder(torch.concat(tokens, axis = 1))
     
     
+    def get_score(self, key):
+        def score(xt, t, cond = None):
+            if cond is not None:
+                aux = self.diffusion_time_embd(t)
+            else:
+                cond = self.diffusion_time_embd(t)
+                aux = None
+            return self.scores[key](xt, cond, aux)
+        return score
+    
+    
     def forward(self, x):
-        z = self.encode(x, skeys = self.modality_dropping_during_training(x.keys())) # modality dropping
-        if self.MMD is not None and self.prior is not None:
-            qz_x = self.prior(*self.prior_params).rsample([z.shape[0]]).to(z.device)
-            mmd_loss = self.regularize * self.MMD(z.reshape(z.shape[0], -1), qz_x.reshape(z.shape[0], -1))
-        else:
-            mmd_loss = 0.0
-        score_matching_loss = sum([self.diffusion_trainer(self.scores[key], x[key], z, self.names[key]).mean() for key in x.keys()])
+        z = self.encode(x, keys = self.modality_dropping_during_training(x.keys())) # modality dropping
+        #breakpoint()
+        score_matching_loss = sum([self.diffusion_trainer(self.get_score(key), x[key], z, self.names[key]).mean() for key in x.keys()])
 
-        return mmd_loss + score_matching_loss
+        return score_matching_loss
     
     
     def sample(self, z, x_T, score, name, ddim = True, ddim_steps = 200):
@@ -170,6 +177,8 @@ class multimodaldaep(nn.Module):
             if ddim:
                 return self.diffusion_sampler.ddim_sample(score, x_T, z, name, steps=ddim_steps)
             return self.diffusion_sampler(score, x_T, z, name)
+    
+    
     
 
     def reconstruct(self, x_0, condition_keys = None, out_keys = None, ddim = True, ddim_steps = 200):
@@ -186,5 +195,5 @@ class multimodaldaep(nn.Module):
             noise = [torch.randn_like(x_0[key][self.names[key]]).to(x_0[key][self.names[key]].device)]
         
             x_t[key][self.names[key]] = noise
-            res[key] = self.sample(z, x_t[key], self.scores[key], self.names[key], ddim, ddim_steps)
+            res[key] = self.sample(z, x_t[key], self.get_score(key), self.names[key], ddim, ddim_steps)
         return res

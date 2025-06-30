@@ -33,6 +33,9 @@ class PerceiverEncoder(nn.Module):
                                                  for _ in range(num_layers)] )
         
         self.bottleneckfc = singlelayerMLP(model_dim, bottleneck_dim)
+        self.model_dim = model_dim
+        self.bottleneck_length = bottleneck_length
+        self.bottleneck_dim = bottleneck_dim
 
     def forward(self, x, mask = None):
         '''
@@ -80,6 +83,8 @@ class PerceiverDecoder(nn.Module):
                                                 )
         self.contextfc = MLP(bottleneck_dim, model_dim, [model_dim])
         self.outputfc = singlelayerMLP(model_dim, out_dim)
+        self.model_dim = model_dim
+        
     
 
     def forward(self, bottleneck, x, aux = None, mask = None):

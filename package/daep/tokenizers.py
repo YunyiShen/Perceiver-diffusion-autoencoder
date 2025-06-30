@@ -10,6 +10,7 @@ class photometryTokenizer(nn.Module):
         self.bandembd = nn.Embedding(num_bands, model_dim)
         self.fluxfc = nn.Linear(1, model_dim)
         self.lcfc = MLP(model_dim * 3, model_dim, [model_dim])
+        self.model_dim = model_dim
 
     def forward(self, x):
         '''
@@ -39,6 +40,7 @@ class spectraTokenizer(nn.Module):
         self.concat = concat
         self.wavelength_embd_layer = SinusoidalMLPPositionalEmbedding(model_dim)# expand wavelength to bottleneck
         self.flux_embd = nn.Linear(1, model_dim)
+        self.model_dim = model_dim
         if concat:
             self.spfc = MLP(2*model_dim, model_dim, [model_dim])
     

@@ -204,6 +204,43 @@ class MultiHeadAttentionLayer_relative(nn.Module):
         
         return x
 
+class CrossAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads=4, dropout=0.1, temperature=1.0):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.scale = temperature / (self.head_dim ** 0.5)
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.out_proj = nn.Linear(embed_dim, embed_dim)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, query, key, value, mask=None):
+        B, Lq, D = query.shape
+        B, Lk, D = key.shape
+
+        def shape(x):
+            return x.view(B, -1, self.num_heads, self.head_dim).transpose(1, 2)  # [B, H, L, D_head]
+
+        Q = shape(self.q_proj(query))
+        K = shape(self.k_proj(key))
+        V = shape(self.v_proj(value))
+
+        attn_logits = torch.matmul(Q, K.transpose(-2, -1)) * self.scale  # [B, H, Lq, Lk]
+        if mask is not None:
+            attn_logits = attn_logits.masked_fill(mask[:, None, None, :], float("-inf"))
+
+        attn_weights = torch.softmax(attn_logits, dim=-1)  # [B, H, Lq, Lk]
+        attn_weights = self.dropout(attn_weights)
+
+        attn_output = torch.matmul(attn_weights, V)  # [B, H, Lq, D_head]
+        attn_output = attn_output.transpose(1, 2).contiguous().view(B, Lq, D)
+        return self.out_proj(attn_output), attn_weights
+
+
+
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, 
                  dropout=0.1, 
