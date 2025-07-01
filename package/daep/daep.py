@@ -192,7 +192,7 @@ class multimodaldaep(nn.Module):
         res = {}
         
         for key in out_keys:
-            noise = [torch.randn_like(x_0[key][self.names[key]]).to(x_0[key][self.names[key]].device)]
+            noise = torch.randn_like(x_0[key][self.names[key]]).to(x_0[key][self.names[key]].device)
         
             x_t[key][self.names[key]] = noise
             res[key] = self.sample(z, x_t[key], self.get_score(key), self.names[key], ddim, ddim_steps)

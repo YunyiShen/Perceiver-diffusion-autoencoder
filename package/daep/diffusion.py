@@ -44,7 +44,10 @@ class GaussianDiffusionTrainer(nn.Module):
             extract(self.sqrt_alphas_bar, t, x_0[name].shape) * x_0[name] +
             extract(self.sqrt_one_minus_alphas_bar, t, x_0[name].shape) * noise)
         #breakpoint()
-        loss = F.mse_loss(model(x_t, t.float()[:, None], cond), noise, reduction='none')
+        if x_t.get("mask") is not None:
+            loss = F.mse_loss(model(x_t, t.float()[:, None], cond), noise, reduction='none')[~x_t['mask']]
+        else:
+            loss = F.mse_loss(model(x_t, t.float()[:, None], cond), noise, reduction='none')
         del x_t
         return loss
 
