@@ -102,7 +102,7 @@ def modality_drop(keys, p_drop=0.2, drop_all=False):
 
 
 class multimodaldaep(nn.Module):
-    def __init__(self, tokenizers, encoder, scores, measurement_names, 
+    def __init__(self, tokenizers, encoder, scores, measurement_names, modality_weights = None,
                  modality_dropping_during_training = lambda x: x,
                  beta_1 = 1e-4, beta_T = 0.02, 
                  T = 1000):
@@ -135,7 +135,9 @@ class multimodaldaep(nn.Module):
         
         self.modalityEmbedding = nn.ParameterDict({key: nn.Parameter(torch.randn(1, 1, self.model_dim)) for key in tokenizers.keys()})
         
-        
+        if modality_weights is None:
+            modality_weights = {key: 1.0 for key in self.modalities}
+        self.modality_weights = modality_weights
     
     def encode(self, x, keys = None):
         '''
@@ -166,7 +168,12 @@ class multimodaldaep(nn.Module):
     def forward(self, x):
         z = self.encode(x, keys = self.modality_dropping_during_training(x.keys())) # modality dropping
         #breakpoint()
-        score_matching_loss = sum([self.diffusion_trainer(self.get_score(key), x[key], z, self.names[key]).mean() for key in x.keys()])
+        score_matching_loss = torch.cat([self.modality_weights[key] * \
+                                            self.diffusion_trainer(
+                                                self.get_score(key), 
+                                                x[key], z, 
+                                                self.names[key]).mean(axis = 0).flatten()  
+                                         for key in x.keys()]).mean()
 
         return score_matching_loss
     
