@@ -24,7 +24,7 @@ import h5py
 
 def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, 
           model_dim = 64, sincosin = False, encoder_layers = 4, 
-          decoder_layers = 4,regularize = 0.0, patch = 3, 
+          decoder_layers = 4,regularize = 0.0, patch = 8, 
           batch = 256, aug = 5, save_every = 5):
     
     
@@ -35,8 +35,7 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                                     factor = aug)
     training_loader = DataLoader(training_data, batch_size = batch, collate_fn = collate_fn_stack)
 
-
-    img_encoder = HostImgTransceiverEncoder(img_size = 128,
+    img_encoder = HostImgTransceiverEncoder(img_size = 256,
                     bottleneck_length = bottlenecklen,
                     bottleneck_dim = bottleneckdim,
                     model_dim = model_dim,
@@ -45,7 +44,7 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     patch_size=patch).to(device)
 
     img_score = HostImgTransceiverScore(
-        img_size = 128,
+        img_size = 256,
         bottleneck_dim = bottleneckdim,
         model_dim = model_dim,
         num_layers = decoder_layers,
