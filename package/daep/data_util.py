@@ -36,6 +36,45 @@ def to_np_cpu(data):
     else:
         return data  # unchanged if not a tensor/list/dict/tuple
 
+import h5py
+class ImgH5DatasetAug(Dataset):
+    def __init__(self, h5_path, key = "images", indices=None,transform=None, factor = 1):
+        self.h5_path = h5_path
+        self.key = key
+        self.indices = indices
+        self._load_h5()
+        self.transform = transform or transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            #transforms.RandomRotation(20),
+            transforms.RandomAffine(degrees = 15, translate = (0.05,0.05), scale = (0.75,1.25)),
+            transforms.ToTensor(), 
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
+        self.factor = factor
+
+    def _load_h5(self):
+        self.h5 = h5py.File(self.h5_path, 'r')
+        self.data = self.h5[self.key]
+
+    def __len__(self):
+        return self.factor * (len(self.indices) if self.indices is not None else len(self.data))
+
+    def __getitem__(self, idx):
+        idx = idx % (len(self.indices) if self.indices is not None else len(self.data))
+        real_idx = self.indices[idx] if self.indices is not None else idx
+        image = Image.fromarray(self.data[real_idx])
+        if self.transform:
+            image = self.transform(image)
+        return {"flux": image} 
+
+    def __del__(self):
+        try:
+            self.h5.close()
+        except:
+            pass
+
+
+
 class ImagePathDatasetAug(Dataset):
     def __init__(self, image_paths, transform=None, factor = 10):
         """
