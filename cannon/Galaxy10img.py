@@ -24,7 +24,7 @@ import h5py
 
 def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, 
           model_dim = 64, sincosin = False, encoder_layers = 4, 
-          decoder_layers = 4,regularize = 0.0, patch = 8, 
+          decoder_layers = 4,regularize = 0.0, imgsize = 64, patch = 4, 
           batch = 256, aug = 5, save_every = 5):
     
     
@@ -32,10 +32,16 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
     
     training_data = ImgH5DatasetAug("../../Galaxy10/Galaxy10_DECals.h5", 
                                     key="images", indices=splits["train"],
-                                    factor = aug)
-    training_loader = DataLoader(training_data, batch_size = batch, collate_fn = collate_fn_stack)
+                                    size = imgsize,
+                                    factor = aug, preload = True)
+    training_loader = DataLoader(training_data, 
+                                 
+                                 batch_size = batch, 
+                                 num_workers=1,  # adjust based on CPU cores
+                                 pin_memory=True,  # speeds up transfer to GPU
+                                 collate_fn = collate_fn_stack)
 
-    img_encoder = HostImgTransceiverEncoder(img_size = 256,
+    img_encoder = HostImgTransceiverEncoder(img_size = imgsize,
                     bottleneck_length = bottlenecklen,
                     bottleneck_dim = bottleneckdim,
                     model_dim = model_dim,
@@ -44,7 +50,7 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     patch_size=patch).to(device)
 
     img_score = HostImgTransceiverScore(
-        img_size = 256,
+        img_size = imgsize,
         bottleneck_dim = bottleneckdim,
         model_dim = model_dim,
         num_layers = decoder_layers,

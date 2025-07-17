@@ -38,23 +38,32 @@ def to_np_cpu(data):
 
 import h5py
 class ImgH5DatasetAug(Dataset):
-    def __init__(self, h5_path, key = "images", indices=None,transform=None, factor = 1):
+    def __init__(self, h5_path, size = 64, key = "images", indices=None,transform=None, factor = 1, preload = False):
         self.h5_path = h5_path
         self.key = key
         self.indices = indices
+        self.preload = preload
         self._load_h5()
         self.transform = transform or transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
             #transforms.RandomRotation(20),
             transforms.RandomAffine(degrees = 15, translate = (0.05,0.05), scale = (0.75,1.25)),
+            transforms.Resize((size, size)),   # Resize image to 128×128
             transforms.ToTensor(), 
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])])
         self.factor = factor
+        
 
     def _load_h5(self):
-        self.h5 = h5py.File(self.h5_path, 'r')
-        self.data = self.h5[self.key]
+        with h5py.File(self.h5_path, 'r') as f:
+            if self.preload:
+                print("Preloading entire HDF5 dataset into memory...")
+                self.data = f[self.key][:]
+                print("Done")
+            else:
+                self.h5 = h5py.File(self.h5_path, 'r')
+                self.data = self.h5[self.key]
 
     def __len__(self):
         return self.factor * (len(self.indices) if self.indices is not None else len(self.data))
