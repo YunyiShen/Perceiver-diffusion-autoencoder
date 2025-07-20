@@ -13,10 +13,10 @@ class timebandEmbedding(nn.Module):
     def __init__(self, num_bands = 6, model_dim = 32):
         super(timebandEmbedding, self).__init__()
         self.time_embd = SinusoidalMLPPositionalEmbedding(model_dim)
-        self.bandembd = nn.Embedding(num_bands, model_dim)
+        self.bandembd = nn.Embedding(num_bands, model_dim) if num_bands > 1 else None
     
     def forward(self, time, band):
-        return self.time_embd(time) + self.bandembd(band)
+        return self.time_embd(time) + (self.bandembd(band) if self.bandembd is not None else 0.0)
 
 class photometryEmbedding(nn.Module):
     def __init__(self, num_bands = 6, model_dim = 32):
@@ -41,9 +41,9 @@ class photometryEmbeddingConcat(nn.Module):
     def __init__(self, num_bands = 6, model_dim = 32):
         super(photometryEmbeddingConcat, self).__init__()
         self.time_embd = SinusoidalMLPPositionalEmbedding(model_dim)
-        self.bandembd = nn.Embedding(num_bands, model_dim)
+        self.bandembd = nn.Embedding(num_bands, model_dim) if num_bands > 1 else None
         self.fluxfc = nn.Linear(1, model_dim)
-        self.lcfc = MLP(model_dim * 3, model_dim, [model_dim])
+        self.lcfc = MLP(model_dim * 2, model_dim, [model_dim])
 
     def forward(self, flux, time, band):
         '''
@@ -55,7 +55,7 @@ class photometryEmbeddingConcat(nn.Module):
             encoding of size [batch_size, bottleneck_length, bottleneck_dim]
 
         '''
-        return self.lcfc(torch.cat((self.fluxfc(flux[:, :, None]), self.time_embd(time) , self.bandembd(band)), axis = -1))
+        return self.lcfc(torch.cat((self.fluxfc(flux[:, :, None]), self.time_embd(time)), axis = -1)) + (self.bandembd(band) if self.bandembd is not None else 0.0)
 
 
 class photometricTransceiverScore(nn.Module):
@@ -113,7 +113,8 @@ class photometricTransceiverScore(nn.Module):
         Return:
             flux of the decoded photometry, [batch_size, photometry_length]
         '''
-        flux, time, band, mask = x['flux'], x['time'], x['band'], x['mask']
+        flux, time, mask = x['flux'], x['time'], x['mask']
+        band = x.get("band")
         x = self.photometry_embd(flux, time, band)
         #breakpoint()
         return self.Decoder(bottleneck, x, aux, mask).squeeze(-1)
@@ -173,7 +174,8 @@ class photometricTransceiverEncoder(nn.Module):
             encoding of size [batch_size, bottleneck_length, bottleneck_dim]
 
         '''
-        flux, time, band, mask = x['flux'], x['time'], x['band'], x['mask']
+        flux, time, mask = x['flux'], x['time'],  x['mask']
+        band = x.get("band")
         x = self.photometry_embd(flux, time, band)
         return self.encoder(x, mask) 
         

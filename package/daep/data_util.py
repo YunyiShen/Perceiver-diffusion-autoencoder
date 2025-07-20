@@ -35,6 +35,18 @@ def to_np_cpu(data):
         return tuple(to_np_cpu(v) for v in data)
     else:
         return data  # unchanged if not a tensor/list/dict/tuple
+    
+def to_tensor(data):
+    if torch.is_tensor(data):
+        return torch.tensor(data)
+    elif isinstance(data, dict):
+        return {k: to_tensor(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [to_tensor(v) for v in data]
+    elif isinstance(data, tuple):
+        return tuple(to_tensor(v) for v in data)
+    else:
+        return data  # unchanged if not a tensor/list/dict/tuple
 
 import h5py
 class ImgH5DatasetAug(Dataset):
@@ -188,8 +200,8 @@ class PhotoSpectraDatasetFromnp(Dataset):
 from torch.nn.utils.rnn import pad_sequence
 
 def multimodal_padding(list_of_modal_dict, supply = ["flux", "wavelength", "time", "band"], 
-                       mask_by = "flux", max_len = None):
-    modalities = [*list_of_modal_dict[0]] # img, spectra etc.
+                       mask_by = "flux", max_len = None, modalities_to_pad = None):
+    modalities = [*list_of_modal_dict[0]] if modalities_to_pad is None else modalities_to_pad # img, spectra etc.
     res = {}
     for modal in modalities:
         tensor_keys = [*list_of_modal_dict[0][modal]] # e.g., flux, wavelength, phase etc
