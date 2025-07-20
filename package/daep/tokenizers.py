@@ -7,9 +7,9 @@ class photometryTokenizer(nn.Module):
     def __init__(self, num_bands = 6, model_dim = 32):
         super(photometryTokenizer, self).__init__()
         self.time_embd = SinusoidalMLPPositionalEmbedding(model_dim)
-        self.bandembd = nn.Embedding(num_bands, model_dim)
+        self.bandembd = nn.Embedding(num_bands, model_dim) if num_bands > 1 else None
         self.fluxfc = nn.Linear(1, model_dim)
-        self.lcfc = MLP(model_dim * 3, model_dim, [model_dim])
+        self.lcfc = MLP(model_dim * 2, model_dim, [model_dim])
         self.model_dim = model_dim
 
     def forward(self, x):
@@ -22,9 +22,10 @@ class photometryTokenizer(nn.Module):
             encoding of size [batch_size, bottleneck_length, bottleneck_dim]
 
         '''
-        flux, time, band = x["flux"], x['time'], x['band']
+        flux, time = x["flux"], x['time']
+        band = x.get('band') # does not have to have band
         
-        return self.lcfc(torch.cat((self.fluxfc(flux[:, :, None]), self.time_embd(time) , self.bandembd(band)), axis = -1))
+        return self.lcfc(torch.cat((self.fluxfc(flux[:, :, None]), self.time_embd(time)), axis = -1)) + (self.bandembd(band) if self.bandembd is not None else 0.0)
 
 
 class spectraTokenizer(nn.Module):
