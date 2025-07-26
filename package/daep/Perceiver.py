@@ -61,7 +61,8 @@ class PerceiverDecoder(nn.Module):
                  ff_dim = 32, 
                  num_layers = 4,
                  dropout=0.1, 
-                 selfattn=False
+                 selfattn=False,
+                 cross_attn_only = False,
                  ):
         '''
         A transformer to decode something (latent) into dimension out_dim
@@ -74,11 +75,12 @@ class PerceiverDecoder(nn.Module):
             num_layers: number of transformer blocks
             dropout: drop out in transformer
             selfattn: if we want self attention to the latent
+            cross_attn_only: if we want the query to only cross attend the latent
         '''
 
         super(PerceiverDecoder, self).__init__()
         self.transformerblocks = nn.ModuleList( [TransformerBlock(model_dim, 
-                                                 num_heads, ff_dim, dropout, selfattn) 
+                                                 num_heads, ff_dim, dropout, selfattn, cross_attn_only) 
                                                     for _ in range(num_layers)] 
                                                 )
         self.contextfc = MLP(bottleneck_dim, model_dim, [model_dim])

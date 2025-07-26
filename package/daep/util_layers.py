@@ -244,13 +244,18 @@ class CrossAttention(nn.Module):
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, ff_dim, 
                  dropout=0.1, 
-                 context_self_attn = False):
+                 context_self_attn = False, 
+                 cross_attn_only = False
+                 ):
         '''
         Usual transformer block allowing context
         '''
         super(TransformerBlock, self).__init__()
-        self.self_attn = nn.MultiheadAttention(embed_dim, num_heads, 
+        if not cross_attn_only:
+            self.self_attn = nn.MultiheadAttention(embed_dim, num_heads, 
                                                dropout=dropout, batch_first=True)
+        else:
+            self.self_attn = None
         self.cross_attn = nn.MultiheadAttention(embed_dim, num_heads, 
                                                 dropout=dropout, batch_first=True)
         if context_self_attn:
@@ -264,7 +269,8 @@ class TransformerBlock(nn.Module):
             nn.GELU(),
             nn.Linear(ff_dim, embed_dim),
         )
-        self.layernorm1 = nn.LayerNorm(embed_dim)
+        if not cross_attn_only:
+            self.layernorm1 = nn.LayerNorm(embed_dim)
         self.layernorm2 = nn.LayerNorm(embed_dim)
         self.layernorm3 = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout)
@@ -272,11 +278,11 @@ class TransformerBlock(nn.Module):
     def forward(self, x, context=None, mask=None, context_mask=None):
         # we made x [batch, seq_len, embed_dim]
 
-
-        attn_output, _ = self.self_attn(x, x, x, 
+        if self.self_attn is not None:
+            attn_output, _ = self.self_attn(x, x, x, 
                                         key_padding_mask = mask)
             # in decoder mask whereever not observed
-        x = self.layernorm1(x + self.dropout(attn_output))
+            x = self.layernorm1(x + self.dropout(attn_output))
 
         # Cross-attention (if context is provided)
         if context is not None:

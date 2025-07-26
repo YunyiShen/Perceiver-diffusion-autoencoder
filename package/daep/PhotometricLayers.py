@@ -69,6 +69,7 @@ class photometricTransceiverScore(nn.Module):
                  dropout=0.1, 
                  selfattn=False,
                  concat = True,
+                 cross_attn_only = False
                  ):
         '''
         A transformer to decode something (latent) into photometry given time and band
@@ -92,7 +93,8 @@ class photometricTransceiverScore(nn.Module):
                  ff_dim, 
                  num_layers,
                  dropout, 
-                 selfattn
+                 selfattn,
+                 cross_attn_only
         )
         if concat:
             self.photometry_embd = photometryEmbeddingConcat(num_bands, model_dim)

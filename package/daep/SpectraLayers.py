@@ -49,7 +49,8 @@ class spectraTransceiverScore(nn.Module):
                  num_layers = 4,
                  dropout=0.1, 
                  selfattn=False,
-                 concat = True
+                 concat = True,
+                 cross_attn_only = False
                  ):
         '''
         A transformer to decode something (latent) into spectra given time and band
@@ -62,6 +63,7 @@ class spectraTransceiverScore(nn.Module):
             num_layers: number of transformer blocks
             dropout: drop out in transformer
             selfattn: if we want self attention to the latent
+            cross_attn_only: if we want the score function to only have cross attention to the latent, better speed
         '''
         super(spectraTransceiverScore, self).__init__()
         self.decoder = PerceiverDecoder(
@@ -72,7 +74,8 @@ class spectraTransceiverScore(nn.Module):
                  ff_dim, 
                  num_layers,
                  dropout, 
-                 selfattn
+                 selfattn,
+                 cross_attn_only
         )
         self.spectraEmbd = spectraEmbedding(model_dim, concat)
         self.model_dim = model_dim
