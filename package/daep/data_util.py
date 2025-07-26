@@ -237,6 +237,9 @@ def unimodal_padding(list_of_modal_dict, supply = ['flux', 'wavelength', 'time',
                 mask = torch.arange(max_len)[None, :] >= length[:, None]
                 this_modality['mask'] = mask
             padded_tensor = pad_sequence(padded_tensor, batch_first = True, padding_value = 0)
+            nonfinite = ~torch.isfinite(padded_tensor)
+            padded_tensor[nonfinite] = 0
+            this_modality['mask'] = torch.logical_or(this_modality['mask'], nonfinite)
         else:
             padded_tensor = torch.stack(padded_tensor, axis = 0)
         this_modality[tensor_key] = padded_tensor
