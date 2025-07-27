@@ -23,7 +23,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 ##### daep #####
 from daep.data_util import to_tensor, collate_fn_stack, to_device, padding_collate_fun
-from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScore
+from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScore2stages
 from daep.daep import multimodaldaep, modality_drop
 from daep.tokenizers import photometryTokenizer, spectraTokenizer
 from daep.Perceiver import PerceiverEncoder
@@ -275,7 +275,7 @@ def train_worker(rank, world_size, args):
     )
 
     scores = {
-        "spectra": spectraTransceiverScore(
+        "spectra": spectraTransceiverScore2stages(
             bottleneck_dim=args["bottleneckdim"],
             model_dim=args["model_dim"],
             num_layers=args["decoder_layers"],
@@ -304,7 +304,7 @@ def train_worker(rank, world_size, args):
 
     losses_log = []
     progress_bar = range(args["epoch"])
-
+    ckpt_name = None
     for ep in progress_bar:
         model.train()
         sampler.set_epoch(ep)
@@ -316,21 +316,26 @@ def train_worker(rank, world_size, args):
 
             with autocast('cuda'):
                 loss = model(batch)
+            if torch.isnan(loss) or torch.isinf(loss):
+                print("⚠️ NaN or Inf loss detected — skipping step")
+                continue  # skip this step and avoid corrupting gradients
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             epoch_losses.append(loss.item())
-
+        
         if rank == 0:
             avg_loss = np.mean(epoch_losses)
             losses_log.append(math.log(avg_loss))
             print(f"[GPU {rank}] Epoch {ep} log-loss: {math.log(avg_loss):.4f}")
             if (ep + 1) % args["save_every"] == 0:
+                if ckpt_name is not None:
+                    os.remove(ckpt_name)
                 ckpt_name = f"../ckpt/AstroM3_daep2stages_ddp_{args['bottlenecklen']}-{args['bottleneckdim']}-{args['spectra_tokens']}-{args['photometry_tokens']}-{args['encoder_layers']}-{args['decoder_layers']}-{args['model_dim']}_concat{args['concat']}_crossattnonly{args['cross_attn_only']}_lr{args['lr']}_modaldropP{args['dropping_prob']}_epoch{ep+1}_batch{args['batch']}_world{world_size}_reg0.0_aug{args['aug']}.pth"
                 torch.save(model, ckpt_name)
                 plt.plot(losses_log)
-                plt.savefig(ckpt_name.replace("pth", "loss.png"))
+                plt.savefig(ckpt_name.replace("pth", "loss.png").replace("../ckpt", "./log").replace(f"_epoch{ep+1}", ""))
                 plt.close()
 
     cleanup_ddp()

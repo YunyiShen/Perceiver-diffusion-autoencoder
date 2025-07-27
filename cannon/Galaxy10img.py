@@ -80,11 +80,11 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
         if (ep+1) % save_every == 0:
             if target_save is not None:
                 os.remove(target_save)
-            target_save = f"../ckpt/Galaxy10_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_sincos{sincosin}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
+            target_save = f"../ckpt/Galaxy10_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_sincos{sincosin}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}_imgsize{imgsize}.pth"
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig(f"./logs/Galaxy10_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_sincos{sincosin}_lr{lr}_batch{batch}_reg{regularize}_aug{aug}.png")
+            plt.savefig(f"./logs/Galaxy10_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_sincos{sincosin}_lr{lr}_batch{batch}_reg{regularize}_aug{aug}_imgsize{imgsize}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {math.log(this_epoch):.4f}") 
         
