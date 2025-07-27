@@ -219,7 +219,9 @@ def multimodal_padding(list_of_modal_dict, supply = ["flux", "wavelength", "time
                 padded_tensor[nonfinite] = 0
                 this_modality['mask'] = torch.logical_or(this_modality['mask'], nonfinite)
             else:
-                padded_tensor = torch.stack(padded_tensor, axis = 0)
+                padded_tensor = torch.stack(padded_tensor, dim=0)
+                nonfinite = ~torch.isfinite(padded_tensor)
+                padded_tensor[nonfinite] = 0 # sanitize
             this_modality[tensor_key] = padded_tensor
         res[modal] = this_modality
     return res

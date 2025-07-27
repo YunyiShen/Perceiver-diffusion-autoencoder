@@ -138,7 +138,7 @@ class PerceiverDecoder2stages(nn.Module):
 
         super(PerceiverDecoder2stages, self).__init__()
         
-        self.init_hidden = nn.Parameter(torch.randn(1, hidden_len, model_dim))
+        self.init_hidden = nn.Parameter(torch.randn(1, hidden_len, model_dim) * 0.02)
         
         self.transformerblocks_bottleneck_to_hidden = nn.ModuleList( [TransformerBlock(model_dim, 
                                                  num_heads, ff_dim, dropout, selfattn, cross_attn_only) 
