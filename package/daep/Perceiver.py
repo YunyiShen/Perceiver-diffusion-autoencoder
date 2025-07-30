@@ -162,7 +162,7 @@ class PerceiverEncoder2stages(nn.Module):
         out = self.initbottleneck[None, :, :]
         out = out.repeat(x.shape[0], 1, 1)
         h = out
-        hidden = self.init_hidden.repeat(x.shape[0].shape[0],1,1)
+        hidden = self.init_hidden.repeat(x.shape[0],1,1)
         for transformerblock1, transformerblock2 in zip(self.transformerblocks_input_to_hidden, self.transformerblocks_hidden_to_bottleneck):
             hidden = transformerblock1(hidden, x, context_mask=mask)
             h = transformerblock2(h, hidden)
