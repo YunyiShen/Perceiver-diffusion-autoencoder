@@ -133,7 +133,7 @@ class multimodaldaep(nn.Module):
         self.latent_len = encoder.bottleneck_length
         self.latent_dim = encoder.bottleneck_dim
         
-        self.modalityEmbedding = nn.ParameterDict({key: nn.Parameter(torch.randn(1, 1, self.model_dim)) for key in tokenizers.keys()})
+        self.modalityEmbedding = nn.ParameterDict({key: nn.Parameter(torch.randn(1, 1, self.model_dim) * 0.02) for key in tokenizers.keys()})
         
         if modality_weights is None:
             modality_weights = {key: 1.0 for key in self.modalities}
@@ -146,7 +146,6 @@ class multimodaldaep(nn.Module):
         
         '''
         keys = keys if keys is not None else x.keys()
-        #breakpoint()
         tokens = [self.tokenizers[key](x[key]) + self.modalityEmbedding[key] for key in keys]
         
         
