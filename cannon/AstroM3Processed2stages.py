@@ -80,10 +80,77 @@ class AstroM3ProcessedPreAug(Dataset):
         return self.data[idx]
 
 
+class AstroM3Dataset(Dataset):
+    def __init__(self, name = "full_42", which = "train", aug = None):
+        # Load the default full dataset with seed 42
+        assert aug is None or (aug >=1 and isinstance(aug, int)), "Augmentation has to be positive integer >=1 or None for not augmenting"
+        self.dataset = load_dataset("../../AstroM3Dataset", name=name, trust_remote_code=True)[which]
+        self.dataset.set_format(type="torch")
+        self.aug = aug if aug is not None else 1
+        self.which = which
+        if which == "test" and self.aug > 1:
+            print("We do not augment test")
+            self.aug = 1
+        #breakpoint()
+
+    def __len__(self):
+        return self.aug * len(self.dataset)
+
+    def __getitem__(self, idx):
+        idx = idx % len(self.dataset)
+        
+        res = {"flux": (torch.log10(self.dataset[idx]['spectra'][:, 1] + (
+                        (torch.randn_like(self.dataset[idx]['spectra'][:, 2]) * \
+                        self.dataset[idx]['spectra'][:, 2]) if self.aug > 1 else 0. ) ) - 2.8766)/0.7795  # this is the mean
+                        , 
+               "wavelength": (self.dataset[idx]['spectra'][:, 0] - 6000.1543)/1548.8627, 
+               "phase": torch.tensor(0.)}       
+        
+        #breakpoint()
+        return res
 
 
+class AstroM3Dataset(Dataset):
+    def __init__(self, name = "full_42", which = "train", aug = None):
+        # Load the default full dataset with seed 42
+        assert aug is None or (aug >=1 and isinstance(aug, int)), "Augmentation has to be positive integer >=1 or None for not augmenting"
+        self.dataset = load_dataset("../../AstroM3Dataset", name=name, trust_remote_code=True)[which]
+        self.dataset.set_format(type="torch")
+        self.aug = aug if aug is not None else 1
+        self.which = which
+        if which == "test" and self.aug > 1:
+            print("We do not augment test")
+            self.aug = 1
+        #breakpoint()
+        for i in len(self.dataset):
+            self.dataset.dataset[i]['photometry'][:, 0] -= self.dataset.dataset[i]['photometry'][:, 0].min()
+
+    def __len__(self):
+        return self.aug * len(self.dataset)
+
+    def __getitem__(self, idx):
+        idx = idx % len(self.dataset)
+        
+        res = {"flux": (torch.log10(self.dataset[idx]['spectra'][:, 1] + (
+                        (torch.randn_like(self.dataset[idx]['spectra'][:, 2]) * \
+                        self.dataset[idx]['spectra'][:, 2]) if self.aug > 1 else 0. ) ) - 2.8766)/0.7795  # this is the mean
+                        , 
+               "wavelength": (self.dataset[idx]['spectra'][:, 0] - 6000.1543)/1548.8627, 
+               "phase": torch.tensor(0.)}      
+        
+        
+        photores = {
+            "flux": (self.dataset[idx]['photometry'][:, 1] + (
+                        (torch.randn_like(self.dataset[idx]['photometry'][:, 0]) * \
+                        self.dataset[idx]['photometry'][:, 2]) if self.aug > 1 else 0.) - 22.6879)/27.7245 , # noise added only if augmentation and training
+            "time": (self.dataset[idx]['photometry'][:, 0]- 788.0814)/475.3434 # [-3, 3] kinda aribitrary to match standardized range
+        } 
+        
+        #breakpoint()
+        return {"spectra": res, "photometry": photores}
 
 
+'''
 class AstroM3Processed(Dataset):
     def __init__(self, name = "full_42", which = "train", aug = None):
         # Load the default full dataset with seed 42
@@ -113,14 +180,14 @@ class AstroM3Processed(Dataset):
         photores = {"flux": self.dataset[idx]['photometry'][:, 1] + (
                         (torch.randn_like(self.dataset[idx]['photometry'][:, 0]) * \
                         self.dataset[idx]['photometry'][:, 2]) if self.aug > 1 else 0.) , # noise added only if augmentation and training
-                    "time": self.dataset[idx]['photometry'][:, 0]
+                    "time": self.dataset[idx]['photometry'][:, 0] * 6 - 3 # [-3, 3] kinda aribitrary to match standardized range
                     }
         #breakpoint()
         return {"spectra": res, "photometry": photores, 
                 #"metadata": {"metadta": self.dataset[idx]['metadata'], 
                 #             "label": self.dataset[idx]['label']}
                 }
-        
+'''       
 
 def setup_ddp(rank, world_size):
     dist.init_process_group("nccl", 
@@ -131,111 +198,6 @@ def setup_ddp(rank, world_size):
 
 def cleanup_ddp():
     dist.destroy_process_group()
-
-
-'''
-def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 16, bottleneckdim = 16, 
-          concat = True, 
-          spectra_tokens = 128,
-          photometry_tokens = 128,
-          model_dim = 128, encoder_layers = 4, 
-          decoder_layers = 4,regularize = 0.000, 
-          dropping_prob = 0.3,
-          batch = 4, aug = 3, save_every = 20):
-    
-    
-
-    training_data = AstroM3Procesed(aug=aug)
-    
-
-    training_loader = DataLoader(training_data, batch_size = batch, 
-                                 collate_fn = padding_collate_fun(supply = ['flux', 'wavelength', 'time'], 
-                                                                  mask_by = "flux", 
-                                                                  multimodal = True), 
-                                 shuffle = True, num_workers=4, pin_memory=True)
-    
-    #breakpoint()
-    tokenizers = {
-        "spectra": spectraTransceiverEncoder(
-            bottleneck_length = spectra_tokens,
-            bottleneck_dim = model_dim,
-            model_dim = model_dim    
-        ), 
-        "photometry": photometricTransceiverEncoder(
-            
-            num_bands = 1, 
-            bottleneck_length = photometry_tokens,
-            bottleneck_dim = model_dim,
-            model_dim = model_dim, 
-        )
-    }
-    
-    encoder = PerceiverEncoder(
-                    bottleneck_length = bottlenecklen,
-                    bottleneck_dim = bottleneckdim,
-                    model_dim = model_dim,
-                    num_layers = encoder_layers,
-                    ff_dim = model_dim,
-                    num_heads = 4 
-    )
-    
-    
-    scores = {
-        "spectra":spectraTransceiverScore(
-                    bottleneck_dim = bottleneckdim,
-                    model_dim = model_dim,
-                    num_layers = decoder_layers,
-                    concat = concat
-                    ), 
-        "photometry": photometricTransceiverScore(
-            bottleneck_dim = bottleneckdim,
-                 num_bands = 1,
-                 model_dim = model_dim,
-                 num_layers = decoder_layers,
-                 concat = concat
-        )
-    }
-
-    
-
-    mydaep = multimodaldaep(tokenizers, encoder, scores, 
-                            measurement_names = {"spectra":"flux", "photometry": "flux"}, 
-                            modality_dropping_during_training = partial(modality_drop, p_drop=dropping_prob)).to(device)
-    
-    mydaep.train()
-    optimizer = AdamW(mydaep.parameters(), lr=lr)
-    epoch_loss = []
-    epoches = []
-    target_save = None
-    progress_bar = tqdm(range(epoch))
-    for ep in progress_bar:
-        losses = []
-        for x in tqdm(training_loader):
-            x = to_device(x)
-            #breakpoint()
-            #print(x['spectra']['flux'].min().item())
-            optimizer.zero_grad()
-            #with torch.cuda.amp.autocast():
-            loss = mydaep(x)
-            loss.backward()
-            optimizer.step()
-            losses.append(loss.item())
-        this_epoch = np.array(losses).mean().item()
-        epoch_loss.append(math.log(this_epoch))
-        epoches.append(ep)
-        if (ep+1) % save_every == 0:
-            if target_save is not None:
-                os.remove(target_save)
-            target_save = f"../ckpt/AstroM3_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_concat{concat}_lr{lr}_modaldropP{dropping_prob}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
-            torch.save(mydaep, target_save)
-            plt.plot(epoches, epoch_loss)
-            plt.show()
-            plt.savefig(f"./logs/AstroM3_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_concat{concat}_lr{lr}_modaldropP{dropping_prob}_batch{batch}_reg{regularize}_aug{aug}.png")
-            plt.close()
-        progress_bar.set_postfix(loss=f"epochs:{ep}, {math.log(this_epoch):.4f}") 
-    
-'''
-
 
 def train_worker(rank, world_size, args):
     setup_ddp(rank, world_size)
@@ -271,7 +233,8 @@ def train_worker(rank, world_size, args):
         model_dim=args["model_dim"],
         num_layers=args["encoder_layers"],
         ff_dim=args["model_dim"],
-        num_heads=4
+        num_heads=4,
+        self_attn = args['mixerselfattn']
     )
 
     scores = {
@@ -303,7 +266,7 @@ def train_worker(rank, world_size, args):
     scaler = GradScaler('cuda')
 
     losses_log = []
-    progress_bar = range(args["epoch"])
+    progress_bar = tqdm(range(args["epoch"]), disable=rank != 0)
     ckpt_name = None
     for ep in progress_bar:
         model.train()
@@ -333,9 +296,9 @@ def train_worker(rank, world_size, args):
                 if ckpt_name is not None:
                     os.remove(ckpt_name)
                 ckpt_name = f"../ckpt/AstroM3_daep2stages_ddp_{args['bottlenecklen']}-{args['bottleneckdim']}-{args['spectra_tokens']}-{args['photometry_tokens']}-{args['encoder_layers']}-{args['decoder_layers']}-{args['model_dim']}_concat{args['concat']}_crossattnonly{args['cross_attn_only']}_lr{args['lr']}_modaldropP{args['dropping_prob']}_epoch{ep+1}_batch{args['batch']}_world{world_size}_reg0.0_aug{args['aug']}.pth"
-                torch.save(model, ckpt_name)
+                torch.save(model.module.state_dict(), ckpt_name)
                 plt.plot(losses_log)
-                plt.savefig(ckpt_name.replace("pth", "loss.png").replace("../ckpt", "./log").replace(f"_epoch{ep+1}", ""))
+                plt.savefig(ckpt_name.replace("pth", "loss.png").replace("../ckpt", "./logs").replace(f"_epoch{ep+1}", ""))
                 plt.close()
 
     cleanup_ddp()
