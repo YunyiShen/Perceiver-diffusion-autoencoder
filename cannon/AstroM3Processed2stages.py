@@ -27,7 +27,7 @@ from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScor
 from daep.daep import multimodaldaep, modality_drop
 from daep.tokenizers import photometryTokenizer, spectraTokenizer
 from daep.Perceiver import PerceiverEncoder
-from daep.PhotometricLayers import photometricTransceiverEncoder, photometricTransceiverScore
+from daep.PhotometricLayers import photometricTransceiverEncoder, photometricTransceiverScore2stages
 from functools import partial
 
 import math 
@@ -79,6 +79,14 @@ class AstroM3ProcessedPreAug(Dataset):
     def __getitem__(self, idx):
         return self.data[idx]
 
+def truncate_photometry(example):
+    phot = example["photometry"]
+    # Ensure it's a tensor
+    if isinstance(phot, torch.Tensor):
+        if phot.shape[0] > 800:
+            phot = phot[:800, :]
+    phot[:, 0] -= phot[:, 0].min()
+    return {"photometry": phot}
 
 class AstroM3Dataset(Dataset):
     def __init__(self, name = "full_42", which = "train", aug = None):
@@ -92,39 +100,11 @@ class AstroM3Dataset(Dataset):
             print("We do not augment test")
             self.aug = 1
         #breakpoint()
-
-    def __len__(self):
-        return self.aug * len(self.dataset)
-
-    def __getitem__(self, idx):
-        idx = idx % len(self.dataset)
-        
-        res = {"flux": (torch.log10(self.dataset[idx]['spectra'][:, 1] + (
-                        (torch.randn_like(self.dataset[idx]['spectra'][:, 2]) * \
-                        self.dataset[idx]['spectra'][:, 2]) if self.aug > 1 else 0. ) ) - 2.8766)/0.7795  # this is the mean
-                        , 
-               "wavelength": (self.dataset[idx]['spectra'][:, 0] - 6000.1543)/1548.8627, 
-               "phase": torch.tensor(0.)}       
-        
-        #breakpoint()
-        return res
-
-
-class AstroM3Dataset(Dataset):
-    def __init__(self, name = "full_42", which = "train", aug = None):
-        # Load the default full dataset with seed 42
-        assert aug is None or (aug >=1 and isinstance(aug, int)), "Augmentation has to be positive integer >=1 or None for not augmenting"
-        self.dataset = load_dataset("../../AstroM3Dataset", name=name, trust_remote_code=True)[which]
-        self.dataset.set_format(type="torch")
-        self.aug = aug if aug is not None else 1
-        self.which = which
-        if which == "test" and self.aug > 1:
-            print("We do not augment test")
-            self.aug = 1
-        #breakpoint()
-        for i in len(self.dataset):
-            self.dataset.dataset[i]['photometry'][:, 0] -= self.dataset.dataset[i]['photometry'][:, 0].min()
-
+        self.dataset = self.dataset.map(
+            truncate_photometry,
+            desc="Centering photometry",
+            load_from_cache_file=False
+            )
     def __len__(self):
         return self.aug * len(self.dataset)
 
@@ -203,7 +183,7 @@ def train_worker(rank, world_size, args):
     setup_ddp(rank, world_size)
 
     # Dataset and loader with distributed sampler
-    dataset = AstroM3Processed(aug=args["aug"])
+    dataset = AstroM3Dataset(aug=args["aug"])
     sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
     dataloader = DataLoader(dataset, batch_size=args["batch"], sampler=sampler,
                             collate_fn=padding_collate_fun(supply=['flux', 'wavelength', 'time'],
@@ -234,7 +214,7 @@ def train_worker(rank, world_size, args):
         num_layers=args["encoder_layers"],
         ff_dim=args["model_dim"],
         num_heads=4,
-        self_attn = args['mixerselfattn']
+        selfattn = args['mixerselfattn']
     )
 
     scores = {
@@ -245,7 +225,7 @@ def train_worker(rank, world_size, args):
             concat=args["concat"],
             cross_attn_only=args['cross_attn_only']
         ),
-        "photometry": photometricTransceiverScore(
+        "photometry": photometricTransceiverScore2stages(
             bottleneck_dim=args["bottleneckdim"],
             num_bands=1,
             model_dim=args["model_dim"],
@@ -274,6 +254,8 @@ def train_worker(rank, world_size, args):
         epoch_losses = []
 
         for batch in dataloader: #tqdm(dataloader, disable=rank != 0):
+            #print(batch['spectra']['wavelength'].shape, batch['photometry']['time'].shape)
+            #print(batch['photometry']['time'].min(), batch['photometry']['time'].mean(), batch['photometry']['time'].std())
             batch = to_device(batch, device)
             optimizer.zero_grad()
 
@@ -295,7 +277,7 @@ def train_worker(rank, world_size, args):
             if (ep + 1) % args["save_every"] == 0:
                 if ckpt_name is not None:
                     os.remove(ckpt_name)
-                ckpt_name = f"../ckpt/AstroM3_daep2stages_ddp_{args['bottlenecklen']}-{args['bottleneckdim']}-{args['spectra_tokens']}-{args['photometry_tokens']}-{args['encoder_layers']}-{args['decoder_layers']}-{args['model_dim']}_concat{args['concat']}_crossattnonly{args['cross_attn_only']}_lr{args['lr']}_modaldropP{args['dropping_prob']}_epoch{ep+1}_batch{args['batch']}_world{world_size}_reg0.0_aug{args['aug']}.pth"
+                ckpt_name = f"../ckpt/AstroM3_daep2stages_ddp_{args['bottlenecklen']}-{args['bottleneckdim']}-{args['spectra_tokens']}-{args['photometry_tokens']}-{args['encoder_layers']}-{args['decoder_layers']}-{args['model_dim']}_concat{args['concat']}_mixerselfattn{args['mixerselfattn']}_crossattnonly{args['cross_attn_only']}_lr{args['lr']}_modaldropP{args['dropping_prob']}_epoch{ep+1}_batch{args['batch']}_world{world_size}_reg0.0_aug{args['aug']}.pth"
                 torch.save(model.module.state_dict(), ckpt_name)
                 plt.plot(losses_log)
                 plt.savefig(ckpt_name.replace("pth", "loss.png").replace("../ckpt", "./logs").replace(f"_epoch{ep+1}", ""))

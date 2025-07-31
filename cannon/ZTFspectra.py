@@ -57,6 +57,7 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     bottleneck_length = bottlenecklen,
                     bottleneck_dim = bottleneckdim,
                     model_dim = model_dim,
+                    ff_dim = model_dim,
                     num_layers = encoder_layers,
                     concat = concat
                     ).to(device)
@@ -64,6 +65,7 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
     spectraScore = spectraTransceiverScore(
                     bottleneck_dim = bottleneckdim,
                     model_dim = model_dim,
+                    ff_dim = model_dim,
                     num_layers = decoder_layers,
                     concat = concat,
                     cross_attn_only = cross_attn_only
