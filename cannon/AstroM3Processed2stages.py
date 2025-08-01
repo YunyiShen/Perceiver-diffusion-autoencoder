@@ -197,12 +197,14 @@ def train_worker(rank, world_size, args):
         "spectra": spectraTransceiverEncoder(
             bottleneck_length=args["spectra_tokens"],
             bottleneck_dim=args["model_dim"],
+            ff_dim=args["model_dim"],
             model_dim=args["model_dim"]
         ),
         "photometry": photometricTransceiverEncoder(
             num_bands=1,
             bottleneck_length=args["photometry_tokens"],
             bottleneck_dim=args["model_dim"],
+            ff_dim=args["model_dim"],
             model_dim=args["model_dim"]
         )
     }
@@ -222,6 +224,7 @@ def train_worker(rank, world_size, args):
             bottleneck_dim=args["bottleneckdim"],
             model_dim=args["model_dim"],
             num_layers=args["decoder_layers"],
+            ff_dim=args["model_dim"],
             concat=args["concat"],
             cross_attn_only=args['cross_attn_only']
         ),
@@ -230,6 +233,7 @@ def train_worker(rank, world_size, args):
             num_bands=1,
             model_dim=args["model_dim"],
             num_layers=args["decoder_layers"],
+            ff_dim=args["model_dim"],
             concat=args["concat"],
             cross_attn_only=args['cross_attn_only']
         )
