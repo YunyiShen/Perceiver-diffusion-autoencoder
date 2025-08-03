@@ -22,10 +22,12 @@ from tqdm import tqdm
 def truncate_photometry(example):
     phot = example["photometry"]
     # Ensure it's a tensor
+    phot = torch.unique(phot, dim=0)
     if isinstance(phot, torch.Tensor):
         if phot.shape[0] > 800:
             phot = phot[:800, :]
     phot[:, 0] -= phot[:, 0].min()
+    phot[:, 1] -= phot[:, 1].mean()
     return {"photometry": phot}
 
 class AstroM3Dataset(Dataset):
@@ -45,6 +47,7 @@ class AstroM3Dataset(Dataset):
             desc="Centering photometry",
             load_from_cache_file=False
             )
+        #breakpoint()
     def __len__(self):
         return self.aug * len(self.dataset)
 
@@ -56,8 +59,9 @@ class AstroM3Dataset(Dataset):
         return {
             "flux": (self.dataset[idx]['photometry'][:, 1] + (
                         (torch.randn_like(self.dataset[idx]['photometry'][:, 0]) * \
-                        self.dataset[idx]['photometry'][:, 2]) if self.aug > 1 else 0.) - 22.6879)/27.7245 , # noise added only if augmentation and training
-            "time": (self.dataset[idx]['photometry'][:, 0]- 788.0814)/475.3434 # [-3, 3] kinda aribitrary to match standardized range
+                        self.dataset[idx]['photometry'][:, 2]) if self.aug > 1 else 0.) )/6.8488,#- 22.6879)/27.7245 , # noise added only if augmentation and training
+            #"time": (self.dataset[idx]['photometry'][:, 0]- 788.0814)/475.3434 # [-3, 3] kinda aribitrary to match standardized range
+            "time": self.dataset[idx]['photometry'][:, 0]
         } 
         
 
@@ -66,7 +70,9 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
           concat = True, cross_attn_only = False,
           model_dim = 256, encoder_heads = 4, decoder_heads = 4,
           encoder_layers = 4, 
-          decoder_layers = 4,regularize = 0.00, 
+          decoder_layers = 4,
+          fourier = False, 
+          regularize = 0.00, 
           batch = 16, aug = 1, save_every = 20):
     
 
@@ -83,7 +89,8 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     ff_dim = model_dim,
                     num_layers = encoder_layers,
                     num_heads = encoder_heads,
-                    concat = concat
+                    concat = concat,
+                    fourier = fourier
                     ).to(device)
 
     photometryScore = photometricTransceiverScore(
@@ -94,7 +101,8 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     num_layers = decoder_layers,
                     num_heads = decoder_heads,
                     concat = concat,
-                    cross_attn_only = cross_attn_only
+                    cross_attn_only = cross_attn_only,
+                    fourier = fourier
                     ).to(device)
 
 
@@ -123,11 +131,11 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
         if (ep+1) % save_every == 0:
             if target_save is not None:
                 os.remove(target_save)
-            target_save = f"../ckpt/AstroM3photometry_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_{encoder_heads}_{decoder_heads}_concat{concat}_corrattnonly{cross_attn_only}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
+            target_save = f"../ckpt/AstroM3photometry_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_{encoder_heads}_{decoder_heads}_concat{concat}_corrattnonly{cross_attn_only}_fourier{fourier}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig(f"./logs/AstroM3photometry_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_{encoder_heads}_{decoder_heads}_concat{concat}_corrattnonly{cross_attn_only}_lr{lr}_batch{batch}_reg{regularize}_aug{aug}.png")
+            plt.savefig(f"./logs/AstroM3photometry_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_{encoder_heads}_{decoder_heads}_concat{concat}_corrattnonly{cross_attn_only}_fourier{fourier}_lr{lr}_batch{batch}_reg{regularize}_aug{aug}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {math.log(this_epoch):.4f}") 
     

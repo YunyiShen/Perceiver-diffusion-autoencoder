@@ -46,16 +46,17 @@ class learnable_fourier_encoding(nn.Module):
             dim: dimension
         '''
         super(learnable_fourier_encoding, self).__init__()
-        self.freq = nn.Linear(1, dim)
+        self.freq = nn.Linear(1, dim, bias = False)
         self.fc1 = nn.Linear(2 * dim, dim)
         self.fc2 = nn.Linear(dim, dim)
         self.activation = nn.GELU()
+        self.invsqrtdim = 1/math.sqrt(dim)
 
     def forward(self, x):
         # x: [batch_size, seq_len]
         x = x[:, :, None]
         encoding = torch.cat([torch.sin(self.freq(x)), 
-                              torch.cos(self.freq(x))], dim=-1)
+                              torch.cos(self.freq(x))], dim=-1) * self.invsqrtdim
         encoding = self.activation( self.fc1(encoding) )
         encoding = self.fc2(encoding)
         return encoding
