@@ -94,6 +94,55 @@ class ImgH5DatasetAug(Dataset):
         except:
             pass
 
+import pandas as pd
+class PLAsTiCCfromcsvaug(Dataset):
+    def __init__(self, csv_path, aug = 1):
+        # Load CSV once
+        self.df = pd.read_csv(csv_path)
+        self.df = self.df[self.df["detected"] == 1]
+        
+        # Sort by object_id to make grouping easier
+        self.df.sort_values("object_id", inplace=True)
+        self.df.reset_index(drop=True, inplace=True)
+        #breakpoint()
+
+        # Convert object_id column to numpy array for fast indexing
+        self.object_ids = self.df["object_id"].values
+
+        # Get unique object IDs and their starting indices in the sorted array
+        self.unique_ids, self.start_indices = np.unique(self.object_ids, return_index=True)
+
+        # For convenience, append end index (last + 1)
+        self.end_indices = np.append(self.start_indices[1:], len(self.df))
+        self.aug = aug
+
+    def __len__(self):
+        return len(self.unique_ids) * self.aug
+
+    def __getitem__(self, idx):
+        # Get row indices for this object_id
+        idx = idx % len(self.unique_ids)
+        start = self.start_indices[idx]
+        end = self.end_indices[idx]
+
+        star_data = self.df.iloc[start:end]
+
+        # Example: extract relevant columns as tensors
+        time = torch.tensor(star_data["mjd"].values - star_data["mjd"].values.min(), dtype=torch.float32)
+        band = torch.tensor(star_data['passband'].values, dtype = torch.long)
+        if self.aug == 1:
+            flux = torch.tensor(star_data["flux"].values, dtype=torch.float32)
+        else:
+            flux = torch.tensor(star_data["flux"].values, dtype=torch.float32) + torch.randn_like(time) * \
+                                torch.tensor(star_data["flux_err"].values, dtype=torch.float32)
+        
+
+        return {
+            
+            "flux": (torch.arcsinh(flux) - 1.9748)/5.6163,
+            "time": time-time.min(),
+            "band": band
+        }
 
 
 class ImagePathDatasetAug(Dataset):
@@ -229,6 +278,9 @@ def multimodal_padding(list_of_modal_dict, supply = ["flux", "wavelength", "time
 
 def unimodal_padding(list_of_modal_dict, supply = ['flux', 'wavelength', 'time', "band"], mask_by = "flux"):
     tensor_keys = [*list_of_modal_dict[0]] # e.g., flux, wavelength, phase etc
+    assert mask_by in tensor_keys, "mask_by has to be in data"
+    tensor_keys.remove(mask_by)
+    tensor_keys.insert(0, mask_by)
     this_modality = {}
     for tensor_key in tensor_keys:
         padded_tensor = [this_dict[tensor_key] for this_dict in list_of_modal_dict]
@@ -241,6 +293,7 @@ def unimodal_padding(list_of_modal_dict, supply = ['flux', 'wavelength', 'time',
             padded_tensor = pad_sequence(padded_tensor, batch_first = True, padding_value = 0)
             nonfinite = ~torch.isfinite(padded_tensor)
             padded_tensor[nonfinite] = 0
+            #breakpoint()
             this_modality['mask'] = torch.logical_or(this_modality['mask'], nonfinite)
         else:
             padded_tensor = torch.stack(padded_tensor, axis = 0)

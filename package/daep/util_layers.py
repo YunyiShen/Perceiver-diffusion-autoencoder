@@ -44,6 +44,7 @@ class learnable_fourier_encoding(nn.Module):
         MLP([sin(fc(x)), cos(fc(x))])
         Args:
             dim: dimension
+        https://proceedings.neurips.cc/paper_files/paper/2021/hash/84c2d4860a0fc27bcf854c444fb8b400-Abstract.html
         '''
         super(learnable_fourier_encoding, self).__init__()
         self.freq = nn.Linear(1, dim, bias = False)
