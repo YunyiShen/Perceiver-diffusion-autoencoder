@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 from .diffusion import GaussianDiffusionTrainer, GaussianDiffusionSampler
 from .util_layers import SinusoidalMLPPositionalEmbedding
-from .mmd import RBF, MMD
+from .mmd import RBF, MMD, robust_mean_squared_error, mean_squared_error
 import torch.distributions as dist
 import random
 import torch
@@ -15,7 +15,7 @@ class unimodaldaep(nn.Module):
     def __init__(self, encoder, score, MMD = None, name = "flux",
                 prior = dist.Laplace, regularize = 0.0001, 
                 beta_1 = 1e-4, beta_T = 0.02, 
-                T = 1000
+                T = 1000, output_uncertainty = False
                 ):
         super().__init__()
         self.encoder = encoder
@@ -26,6 +26,7 @@ class unimodaldaep(nn.Module):
         self.MMD = MMD
         self.latent_len = encoder.bottleneck_length
         self.latent_dim = encoder.bottleneck_dim
+        self.output_uncertainty = output_uncertainty
         if MMD is not None and prior is not None:
             self.prior = prior
             self.prior_params = nn.ParameterList([
@@ -53,7 +54,22 @@ class unimodaldaep(nn.Module):
             mmd_loss = self.regularize * self.MMD(z.reshape(z.shape[0], -1), qz_x.reshape(z.shape[0], -1))
         else:
             mmd_loss = 0.0
-        score_matching_loss = self.diffusion_trainer(self.score, x, z, self.name).mean()
+        
+        if self.output_uncertainty:
+            # Use uncertainty-aware loss if uncertainties are available
+            if 'uncertainty' in x[self.name]:
+                score_output = self.diffusion_trainer(self.score, x, z, self.name)
+                if isinstance(score_output, tuple):
+                    pred, logvar = score_output
+                    uncertainty = x[self.name]['uncertainty']
+                    target = x[self.name][self.name]  # The actual target values
+                    score_matching_loss = robust_mean_squared_error(target, pred, logvar, uncertainty).mean()
+                else:
+                    score_matching_loss = score_output.mean()
+            else:
+                score_matching_loss = self.diffusion_trainer(self.score, x, z, self.name).mean()
+        else:
+            score_matching_loss = self.diffusion_trainer(self.score, x, z, self.name).mean()
 
         return mmd_loss + score_matching_loss
     
@@ -105,13 +121,14 @@ class multimodaldaep(nn.Module):
     def __init__(self, tokenizers, encoder, scores, measurement_names, modality_weights = None,
                  modality_dropping_during_training = lambda x: x,
                  beta_1 = 1e-4, beta_T = 0.02, 
-                 T = 1000):
+                 T = 1000, output_uncertainty = False):
         '''
         Args:
             tokenizers: {modality: tokenizer} that should share the same out put dimension (can be different seqlen)
             encoder: a sngle perceiver encoder
             scores: {modality: score}
             modality_dropping_during_training: a callable making a copy of the data that conditioning will only be based on them
+            output_uncertainty: if True, output both prediction and log-variance uncertainty for each modality
         '''
         super().__init__()
         assert set(tokenizers.keys()) == set(scores.keys()) and set(tokenizers.keys()) == set(measurement_names.keys()), "modality keys have to match"
@@ -124,6 +141,7 @@ class multimodaldaep(nn.Module):
         self.scores = nn.ModuleDict(scores)
         self.names = measurement_names
         self.modality_dropping_during_training = modality_dropping_during_training
+        self.output_uncertainty = output_uncertainty
         
         self.model_dim = min(modeldims)
         
@@ -167,12 +185,31 @@ class multimodaldaep(nn.Module):
     def forward(self, x):
         z = self.encode(x, keys = self.modality_dropping_during_training(x.keys())) # modality dropping
         #breakpoint()
-        score_matching_loss = torch.cat([self.modality_weights[key] * \
-                                            self.diffusion_trainer(
-                                                self.get_score(key), 
-                                                x[key], z, 
-                                                self.names[key]).mean(axis = 0).flatten()  
-                                         for key in x.keys()]).mean()
+        
+        if self.output_uncertainty:
+            # Use uncertainty-aware loss if uncertainties are available
+            losses = []
+            for key in x.keys():
+                score_output = self.diffusion_trainer(self.get_score(key), x[key], z, self.names[key])
+                if isinstance(score_output, tuple):
+                    pred, logvar = score_output
+                    if 'uncertainty' in x[key]:
+                        uncertainty = x[key]['uncertainty']
+                        target = x[key][self.names[key]]  # The actual target values
+                        loss = robust_mean_squared_error(target, pred, logvar, uncertainty).mean(axis=0).flatten()
+                    else:
+                        loss = score_output.mean(axis=0).flatten()
+                else:
+                    loss = score_output.mean(axis=0).flatten()
+                losses.append(self.modality_weights[key] * loss)
+            score_matching_loss = torch.cat(losses).mean()
+        else:
+            score_matching_loss = torch.cat([self.modality_weights[key] * \
+                                                self.diffusion_trainer(
+                                                    self.get_score(key), 
+                                                    x[key], z, 
+                                                    self.names[key]).mean(axis = 0).flatten()  
+                                             for key in x.keys()]).mean()
 
         return score_matching_loss
     

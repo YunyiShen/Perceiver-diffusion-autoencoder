@@ -133,7 +133,8 @@ class HostImgTransceiverScore(nn.Module):
                  num_layers=4,
                  dropout=0.1,
                  selfattn=False,
-                 sincosin = True
+                 sincosin = True,
+                 output_uncertainty = False
                  ):
         '''
         Decoder directly to patch then refine with a CNN at the end
@@ -148,6 +149,7 @@ class HostImgTransceiverScore(nn.Module):
             dropout: drop out in transformer
             selfattn: if we want self attention to the given image
             sincosin: what positional encoding to use in tokenizer
+            output_uncertainty: if True, output both prediction and log-variance uncertainty
         '''
         super().__init__()
 
@@ -159,6 +161,7 @@ class HostImgTransceiverScore(nn.Module):
         self.in_channels = in_channels
         
         self.model_dim = model_dim
+        self.output_uncertainty = output_uncertainty
 
         
 
@@ -178,7 +181,8 @@ class HostImgTransceiverScore(nn.Module):
                  ff_dim, 
                  num_layers,
                  dropout, 
-                 selfattn
+                 selfattn,
+                 output_uncertainty=output_uncertainty
         )
 
         # final CNN for smoothing
@@ -189,6 +193,13 @@ class HostImgTransceiverScore(nn.Module):
             nn.ReLU(),
             nn.Conv2d(mid_channels, in_channels, kernel_size=patch_size, padding='same')
         )
+        
+        if output_uncertainty:
+            self.final_refine_uncertainty = nn.Sequential(
+                nn.Conv2d(model_dim, mid_channels, kernel_size=patch_size, padding='same'),
+                nn.ReLU(),
+                nn.Conv2d(mid_channels, in_channels, kernel_size=patch_size, padding='same')
+            )
 
     def forward(self, x, bottleneck, aux):
         '''
@@ -197,15 +208,33 @@ class HostImgTransceiverScore(nn.Module):
             bottleneck: tensor for bottleneck, [batch, bottleneck_length, bottleneck_dim]
             aux: aux tensor to be ppended to time 
         Return:
-            Decoded image, with shape [batch, in_channel, img_size, img_size]
+            if output_uncertainty=False: Decoded image, with shape [batch, in_channel, img_size, img_size]
+            if output_uncertainty=True: tuple of (prediction, log_variance) each with shape [batch, in_channel, img_size, img_size]
         '''
         noisyImg = x.get("flux")
         B = bottleneck.size(0) # batchs
         #model_dim = self.decoder.model_dim
         h = self.tokenizer(noisyImg)
-        h = self.decoder(bottleneck, h, aux)
-        h = h.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, -1)
-        h = h.permute(0, 5, 1, 3, 2, 4).contiguous()
-        h = h.view(B, -1, self.img_size, self.img_size)  # [B, C, H, W]
-        # final smoothing
-        return self.final_refine(h)
+        output = self.decoder(bottleneck, h, aux)
+        
+        if self.output_uncertainty:
+            pred, logvar = output
+            # Process prediction
+            pred = pred.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, -1)
+            pred = pred.permute(0, 5, 1, 3, 2, 4).contiguous()
+            pred = pred.view(B, -1, self.img_size, self.img_size)  # [B, C, H, W]
+            pred = self.final_refine(pred)
+            
+            # Process uncertainty
+            logvar = logvar.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, -1)
+            logvar = logvar.permute(0, 5, 1, 3, 2, 4).contiguous()
+            logvar = logvar.view(B, -1, self.img_size, self.img_size)  # [B, C, H, W]
+            logvar = self.final_refine_uncertainty(logvar)
+            
+            return pred, logvar
+        else:
+            output = output.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, -1)
+            output = output.permute(0, 5, 1, 3, 2, 4).contiguous()
+            output = output.view(B, -1, self.img_size, self.img_size)  # [B, C, H, W]
+            # final smoothing
+            return self.final_refine(output)

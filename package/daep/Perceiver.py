@@ -63,6 +63,7 @@ class PerceiverDecoder(nn.Module):
                  dropout=0.1, 
                  selfattn=False,
                  cross_attn_only = False,
+                 output_uncertainty = False
                  ):
         '''
         A transformer to decode something (latent) into dimension out_dim
@@ -76,6 +77,7 @@ class PerceiverDecoder(nn.Module):
             dropout: drop out in transformer
             selfattn: if we want self attention to the latent
             cross_attn_only: if we want the query to only cross attend the latent
+            output_uncertainty: if True, output both prediction and log-variance uncertainty
         '''
 
         super(PerceiverDecoder, self).__init__()
@@ -85,6 +87,9 @@ class PerceiverDecoder(nn.Module):
                                                 )
         self.contextfc = MLP(bottleneck_dim, model_dim, [model_dim])
         self.outputfc = singlelayerMLP(model_dim, out_dim)
+        self.output_uncertainty = output_uncertainty
+        if output_uncertainty:
+            self.logvarfc = singlelayerMLP(model_dim, out_dim)
         self.model_dim = model_dim
         
     
@@ -97,7 +102,8 @@ class PerceiverDecoder(nn.Module):
             aux: auxiliary token to be added to bottleneck, should have dimension [B, len, model_dim]
             mask: attention mask
         Return:
-            bottleneck representation of size [B, bottleneck_len, bottleneck_dim] 
+            if output_uncertainty=False: bottleneck representation of size [B, bottleneck_len, bottleneck_dim] 
+            if output_uncertainty=True: tuple of (prediction, log_variance) each of size [B, bottleneck_len, bottleneck_dim]
         '''
         h = x
         bottleneck = self.contextfc(bottleneck)
@@ -105,7 +111,13 @@ class PerceiverDecoder(nn.Module):
             bottleneck = torch.concat([bottleneck, aux], dim=1)
         for transformerblock in self.transformerblocks:
             h = transformerblock(h, bottleneck, mask=mask)
-        return self.outputfc(x + h)
+        pred = self.outputfc(x + h)
+        
+        if self.output_uncertainty:
+            logvar = self.logvarfc(x + h)
+            return pred, logvar
+        else:
+            return pred
 
 
 
@@ -166,7 +178,7 @@ class PerceiverEncoder2stages(nn.Module):
         for transformerblock1, transformerblock2 in zip(self.transformerblocks_input_to_hidden, self.transformerblocks_hidden_to_bottleneck):
             hidden = transformerblock1(hidden, x, context_mask=mask)
             h = transformerblock2(h, hidden)
-        return self.outputfc(out + h)
+        return self.bottleneckfc(out + h)
 
 
 class PerceiverDecoder2stages(nn.Module):
@@ -181,6 +193,7 @@ class PerceiverDecoder2stages(nn.Module):
                  dropout=0.1, 
                  selfattn=False,
                  cross_attn_only = False,
+                 output_uncertainty = False
                  ):
         '''
         A transformer to decode something (latent) into dimension out_dim
@@ -194,6 +207,7 @@ class PerceiverDecoder2stages(nn.Module):
             dropout: drop out in transformer
             selfattn: if we want self attention to the latent
             cross_attn_only: if we want the query to only cross attend the latent
+            output_uncertainty: if True, output both prediction and log-variance uncertainty
         '''
 
         super(PerceiverDecoder2stages, self).__init__()
@@ -210,6 +224,9 @@ class PerceiverDecoder2stages(nn.Module):
                                                 )
         self.contextfc = MLP(bottleneck_dim, model_dim, [model_dim])
         self.outputfc = singlelayerMLP(model_dim, out_dim)
+        self.output_uncertainty = output_uncertainty
+        if output_uncertainty:
+            self.logvarfc = singlelayerMLP(model_dim, out_dim)
         self.model_dim = model_dim
         
     
@@ -222,7 +239,8 @@ class PerceiverDecoder2stages(nn.Module):
             aux: auxiliary token to be added to bottleneck, should have dimension [B, len, model_dim]
             mask: attention mask
         Return:
-            bottleneck representation of size [B, bottleneck_len, bottleneck_dim] 
+            if output_uncertainty=False: bottleneck representation of size [B, bottleneck_len, bottleneck_dim] 
+            if output_uncertainty=True: tuple of (prediction, log_variance) each of size [B, bottleneck_len, bottleneck_dim]
         '''
         h = x
         hidden = self.init_hidden.repeat(bottleneck.shape[0],1,1)
@@ -232,7 +250,13 @@ class PerceiverDecoder2stages(nn.Module):
         for transformerblock1, transformerblock2 in zip(self.transformerblocks_bottleneck_to_hidden, self.transformerblocks_hidden_to_out):
             hidden = transformerblock1(hidden, bottleneck)
             h = transformerblock2(x, hidden, mask = mask)
-        return self.outputfc(x + h)
+        pred = self.outputfc(x + h)
+        
+        if self.output_uncertainty:
+            logvar = self.logvarfc(x + h)
+            return pred, logvar
+        else:
+            return pred
 
 
 

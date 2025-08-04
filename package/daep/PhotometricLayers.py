@@ -76,7 +76,8 @@ class photometricTransceiverScore(nn.Module):
                  selfattn=False,
                  concat = True,
                  cross_attn_only = False,
-                 fourier = False # use learnable fourier for time embedding?
+                 fourier = False, # use learnable fourier for time embedding?
+                 output_uncertainty = False
                  ):
         '''
         A transformer to decode something (latent) into photometry given time and band
@@ -90,6 +91,7 @@ class photometricTransceiverScore(nn.Module):
             dropout: drop out in transformer
             donotmask: should we ignore the mask when decoding?
             selfattn: if we want self attention to the latent
+            output_uncertainty: if True, output both prediction and log-variance uncertainty
         '''
         super(photometricTransceiverScore, self).__init__()
         self.Decoder = PerceiverDecoder(
@@ -101,7 +103,8 @@ class photometricTransceiverScore(nn.Module):
                  num_layers,
                  dropout, 
                  selfattn,
-                 cross_attn_only
+                 cross_attn_only,
+                 output_uncertainty
         )
         if concat:
             self.photometry_embd = photometryEmbeddingConcat(num_bands, model_dim, fourier)
@@ -109,6 +112,7 @@ class photometricTransceiverScore(nn.Module):
             self.photometry_embd = photometryEmbedding(num_bands, model_dim, fourier)
         self.model_dim = model_dim
         self.bottleneck_dim = bottleneck_dim
+        self.output_uncertainty = output_uncertainty
     
     def forward(self, x, bottleneck, aux):
         '''
@@ -120,13 +124,19 @@ class photometricTransceiverScore(nn.Module):
                 mask: mask [batch_size, photometry_length]
             bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
         Return:
-            flux of the decoded photometry, [batch_size, photometry_length]
+            if output_uncertainty=False: flux of the decoded photometry, [batch_size, photometry_length]
+            if output_uncertainty=True: tuple of (prediction, log_variance) each of shape [batch_size, photometry_length]
         '''
         flux, time, mask = x['flux'], x['time'], x['mask']
         band = x.get("band")
         x = self.photometry_embd(flux, time, band)
         #breakpoint()
-        return self.Decoder(bottleneck, x, aux, mask).squeeze(-1)
+        output = self.Decoder(bottleneck, x, aux, mask)
+        if self.output_uncertainty:
+            pred, logvar = output
+            return pred.squeeze(-1), logvar.squeeze(-1)
+        else:
+            return output.squeeze(-1)
 
 
 
@@ -144,7 +154,8 @@ class photometricTransceiverScore2stages(nn.Module):
                  concat = True,
                  cross_attn_only = False,
                  hidden_len = 256,
-                 fourier = False
+                 fourier = False,
+                 output_uncertainty = False
                  ):
         '''
         A transformer to decode something (latent) into photometry given time and band
@@ -158,6 +169,7 @@ class photometricTransceiverScore2stages(nn.Module):
             dropout: drop out in transformer
             donotmask: should we ignore the mask when decoding?
             selfattn: if we want self attention to the latent
+            output_uncertainty: if True, output both prediction and log-variance uncertainty
         '''
         super(photometricTransceiverScore2stages, self).__init__()
         self.Decoder = PerceiverDecoder2stages(
@@ -170,7 +182,8 @@ class photometricTransceiverScore2stages(nn.Module):
                  num_layers,
                  dropout, 
                  selfattn,
-                 cross_attn_only
+                 cross_attn_only,
+                 output_uncertainty
         )
         if concat:
             self.photometry_embd = photometryEmbeddingConcat(num_bands, model_dim, fourier)
@@ -178,6 +191,7 @@ class photometricTransceiverScore2stages(nn.Module):
             self.photometry_embd = photometryEmbedding(num_bands, model_dim, fourier)
         self.model_dim = model_dim
         self.bottleneck_dim = bottleneck_dim
+        self.output_uncertainty = output_uncertainty
     
     def forward(self, x, bottleneck, aux):
         '''
@@ -189,13 +203,19 @@ class photometricTransceiverScore2stages(nn.Module):
                 mask: mask [batch_size, photometry_length]
             bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
         Return:
-            flux of the decoded photometry, [batch_size, photometry_length]
+            if output_uncertainty=False: flux of the decoded photometry, [batch_size, photometry_length]
+            if output_uncertainty=True: tuple of (prediction, log_variance) each of shape [batch_size, photometry_length]
         '''
         flux, time, mask = x['flux'], x['time'], x['mask']
         band = x.get("band")
         x = self.photometry_embd(flux, time, band)
         #breakpoint()
-        return self.Decoder(bottleneck, x, aux, mask).squeeze(-1)
+        output = self.Decoder(bottleneck, x, aux, mask)
+        if self.output_uncertainty:
+            pred, logvar = output
+            return pred.squeeze(-1), logvar.squeeze(-1)
+        else:
+            return output.squeeze(-1)
 
 
 # this will generate bottleneck, in encoder

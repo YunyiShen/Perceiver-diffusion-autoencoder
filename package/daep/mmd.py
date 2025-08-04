@@ -42,3 +42,61 @@ class MMD(nn.Module):
         XY = K[:X_size, X_size:].mean()
         YY = K[X_size:, X_size:].mean()
         return XX - 2 * XY + YY
+
+
+def robust_mean_squared_error(
+    y_true: torch.Tensor,
+    y_pred: torch.Tensor,
+    variance: torch.Tensor,
+    labels_err: torch.Tensor,
+    epsilon: float = 1e-8,
+) -> torch.Tensor:
+    """
+    Robust mean squared error loss that accounts for both predicted and input uncertainties.
+    
+    Parameters
+    ----------
+    y_true : torch.Tensor
+        Ground truth values.
+    y_pred : torch.Tensor
+        Predicted values.
+    variance : torch.Tensor
+        Predicted log-variance from the model.
+    labels_err : torch.Tensor
+        Input uncertainty values.
+    epsilon : float, optional
+        Small constant for numerical stability, by default 1e-8.
+        
+    Returns
+    -------
+    torch.Tensor
+        Robust MSE loss value.
+    """
+    # Neural Net is predicting log(var), so take exp, takes account the target variance, and take log back
+    total_var = torch.exp(variance) + torch.square(labels_err) + epsilon
+    wrapper_output = 0.5 * (
+        (torch.square(y_true - y_pred) / total_var) + torch.log(total_var)
+    )
+
+    losses = wrapper_output.sum() / y_true.shape[0]
+    return losses
+
+
+def mean_squared_error(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:
+    """
+    Standard mean squared error loss.
+    
+    Parameters
+    ----------
+    y_true : torch.Tensor
+        Ground truth values.
+    y_pred : torch.Tensor
+        Predicted values.
+        
+    Returns
+    -------
+    torch.Tensor
+        MSE loss value.
+    """
+    losses = (torch.square(y_true - y_pred)).sum() / y_true.shape[0]
+    return losses

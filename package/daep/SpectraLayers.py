@@ -50,7 +50,8 @@ class spectraTransceiverScore(nn.Module):
                  dropout=0.1, 
                  selfattn=False,
                  concat = True,
-                 cross_attn_only = False
+                 cross_attn_only = False,
+                 output_uncertainty = False
                  ):
         '''
         A transformer to decode something (latent) into spectra given time and band
@@ -64,6 +65,7 @@ class spectraTransceiverScore(nn.Module):
             dropout: drop out in transformer
             selfattn: if we want self attention to the latent
             cross_attn_only: if we want the score function to only have cross attention to the latent, better speed
+            output_uncertainty: if True, output both prediction and log-variance uncertainty
         '''
         super(spectraTransceiverScore, self).__init__()
         self.decoder = PerceiverDecoder(
@@ -75,10 +77,12 @@ class spectraTransceiverScore(nn.Module):
                  num_layers,
                  dropout, 
                  selfattn,
-                 cross_attn_only
+                 cross_attn_only,
+                 output_uncertainty
         )
         self.spectraEmbd = spectraEmbedding(model_dim, concat)
         self.model_dim = model_dim
+        self.output_uncertainty = output_uncertainty
         
     
     def forward(self, x, bottleneck, aux):
@@ -90,7 +94,8 @@ class spectraTransceiverScore(nn.Module):
                 mask: mask of spectra [batch_size, spectra_length]
             bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
         Return:
-            Decoded spectra of shape [batch_size, spectra_length]
+            if output_uncertainty=False: Decoded spectra of shape [batch_size, spectra_length]
+            if output_uncertainty=True: tuple of (prediction, log_variance) each of shape [batch_size, spectra_length]
         '''
         flux, wavelength, phase, mask = x['flux'] ,x['wavelength'], x['phase'], x['mask']
         x = self.spectraEmbd(wavelength, flux, phase)
@@ -99,7 +104,12 @@ class spectraTransceiverScore(nn.Module):
         else:
             aux = x[:, -1,:][:, None, :]
         x = x[:, :-1, :]
-        return self.decoder(bottleneck, x, aux, mask).squeeze(-1) 
+        output = self.decoder(bottleneck, x, aux, mask)
+        if self.output_uncertainty:
+            pred, logvar = output
+            return pred.squeeze(-1), logvar.squeeze(-1)
+        else:
+            return output.squeeze(-1)
     
     
 class spectraTransceiverScore2stages(nn.Module):
@@ -113,7 +123,8 @@ class spectraTransceiverScore2stages(nn.Module):
                  selfattn=False,
                  concat = True,
                  cross_attn_only = False,
-                 hidden_len = 256
+                 hidden_len = 256,
+                 output_uncertainty = False
                  ):
         '''
         A transformer to decode something (latent) into spectra given time and frequency, with a two stage procedure for efficiency
@@ -127,6 +138,8 @@ class spectraTransceiverScore2stages(nn.Module):
             dropout: drop out in transformer
             selfattn: if we want self attention to the latent
             cross_attn_only: if we want the score function to only have cross attention to the latent, better speed
+            hidden_len: length of hidden representation in two-stage decoder
+            output_uncertainty: if True, output both prediction and log-variance uncertainty
         '''
         super(spectraTransceiverScore2stages, self).__init__()
         self.decoder = PerceiverDecoder2stages(
@@ -139,11 +152,12 @@ class spectraTransceiverScore2stages(nn.Module):
                  num_layers,
                  dropout, 
                  selfattn,
-                 cross_attn_only
+                 cross_attn_only,
+                 output_uncertainty
         )
         self.spectraEmbd = spectraEmbedding(model_dim, concat)
         self.model_dim = model_dim
-        
+        self.output_uncertainty = output_uncertainty
     
     def forward(self, x, bottleneck, aux):
         '''
@@ -154,7 +168,8 @@ class spectraTransceiverScore2stages(nn.Module):
                 mask: mask of spectra [batch_size, spectra_length]
             bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
         Return:
-            Decoded spectra of shape [batch_size, spectra_length]
+            if output_uncertainty=False: Decoded spectra of shape [batch_size, spectra_length]
+            if output_uncertainty=True: tuple of (prediction, log_variance) each of shape [batch_size, spectra_length]
         '''
         flux, wavelength, phase, mask = x['flux'] ,x['wavelength'], x['phase'], x['mask']
         x = self.spectraEmbd(wavelength, flux, phase)
@@ -163,7 +178,12 @@ class spectraTransceiverScore2stages(nn.Module):
         else:
             aux = x[:, -1,:][:, None, :]
         x = x[:, :-1, :]
-        return self.decoder(bottleneck, x, aux, mask).squeeze(-1) 
+        output = self.decoder(bottleneck, x, aux, mask)
+        if self.output_uncertainty:
+            pred, logvar = output
+            return pred.squeeze(-1), logvar.squeeze(-1)
+        else:
+            return output.squeeze(-1)
 
 # this will generate bottleneck, in encoder
 class spectraTransceiverEncoder(nn.Module):

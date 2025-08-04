@@ -44,10 +44,20 @@ class GaussianDiffusionTrainer(nn.Module):
             extract(self.sqrt_alphas_bar, t, x_0[name].shape) * x_0[name] +
             extract(self.sqrt_one_minus_alphas_bar, t, x_0[name].shape) * noise)
         #breakpoint()
+        
+        model_output = model(x_t, t.float()[:, None], cond)
+        
+        # Handle both single output and tuple output (prediction, uncertainty)
+        if isinstance(model_output, tuple):
+            pred, logvar = model_output
+            # For now, we'll use the prediction for the diffusion loss
+            # The uncertainty will be handled in the main loss function
+            model_output = pred
+        
         if x_t.get("mask") is not None:
-            loss = F.mse_loss(model(x_t, t.float()[:, None], cond), noise, reduction='none')[~x_t['mask']]
+            loss = F.mse_loss(model_output, noise, reduction='none')[~x_t['mask']]
         else:
-            loss = F.mse_loss(model(x_t, t.float()[:, None], cond), noise, reduction='none')
+            loss = F.mse_loss(model_output, noise, reduction='none')
         del x_t
         return loss
 
@@ -136,14 +146,26 @@ class GaussianDiffusionSampler(nn.Module):
 
         # Mean parameterization
         if self.mean_type == 'xprev':       # the model predicts x_{t-1}
-            x_prev = model(x_t, t.float()[:, None], cond)
+            model_output = model(x_t, t.float()[:, None], cond)
+            if isinstance(model_output, tuple):
+                x_prev, _ = model_output  # Ignore uncertainty for now
+            else:
+                x_prev = model_output
             x_0 = self.predict_xstart_from_xprev(x_t, t.float(), xprev=x_prev, name = name)
             model_mean = x_prev
         elif self.mean_type == 'xstart':    # the model predicts x_0
-            x_0 = model(x_t, t.float()[:, None], cond)
+            model_output = model(x_t, t.float()[:, None], cond)
+            if isinstance(model_output, tuple):
+                x_0, _ = model_output  # Ignore uncertainty for now
+            else:
+                x_0 = model_output
             model_mean, _ = self.q_mean_variance(x_0, x_t, t, name)
         elif self.mean_type == 'epsilon':   # the model predicts epsilon
-            eps = model(x_t, t.float()[:, None], cond)
+            model_output = model(x_t, t.float()[:, None], cond)
+            if isinstance(model_output, tuple):
+                eps, _ = model_output  # Ignore uncertainty for now
+            else:
+                eps = model_output
             x_0 = self.predict_xstart_from_eps(x_t, t, eps=eps, name = name)
             model_mean, _ = self.q_mean_variance(x_0, x_t, t, name)
         else:
@@ -198,7 +220,11 @@ class GaussianDiffusionSampler(nn.Module):
             t_batch = t.expand(x_t[name].shape[0]).to(device)
 
             # Predict epsilon (noise)
-            eps = model(x_t, t_batch.float().unsqueeze(1), cond)
+            model_output = model(x_t, t_batch.float().unsqueeze(1), cond)
+            if isinstance(model_output, tuple):
+                eps, _ = model_output  # Ignore uncertainty for now
+            else:
+                eps = model_output
 
             alpha_bar_t = extract(alphas_bar, t_batch, x_t[name].shape)
             sqrt_alpha_bar = torch.sqrt(alpha_bar_t)
