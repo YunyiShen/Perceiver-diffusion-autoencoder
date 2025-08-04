@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_lsst_lc(photoband, photomag, phototime, photomask, ax = None, label = False, s = 5, lw = 2):
+def plot_lsst_lc(photoband, photomag, phototime, photomask, ax = None, label = False, s = 5, lw = 2, flip = True):
     lsst_bands = ["u", "g", "r", "i", "z", "y"]
     colors = ["purple", "blue", "darkgreen", "lime", "orange", "red"]
     photoband = photoband[~photomask]
@@ -17,7 +17,8 @@ def plot_lsst_lc(photoband, photomag, phototime, photomask, ax = None, label = F
             else:
                 ax.scatter(phototime[idx], photomag[idx], s=s, color=colors[bnd])
             ax.plot(phototime[idx], photomag[idx], color=colors[bnd], alpha=0.5, lw = lw)
-    ax.invert_yaxis()
+    if flip:
+        ax.invert_yaxis()
     if ax is None:
         return fig
 
