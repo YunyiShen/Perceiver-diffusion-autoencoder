@@ -1,0 +1,49 @@
+{
+    "env": "local",
+    "data": {
+        "data_path_local": "/home/altair/Documents/UROP/2025_Summer/vastclammm/data",
+        "models_path_local": "/home/altair/Documents/UROP/2025_Summer/vastclammm/models",
+        "data_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/data",
+        "models_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/models",
+        "test_name": "galah_1k"
+    },
+    "training": {
+        "epoch": 20,
+        "lr": 2.5e-4,
+        "batch": 4,
+        "save_every": 5,
+        "aug": 1
+    },
+    "model": {
+        "bottlenecklen": 4,
+        "bottleneckdim": 4,
+        "model_dim": 128,
+        "encoder_heads": 4,
+        "decoder_heads": 4,
+        "encoder_layers": 4,
+        "decoder_layers": 4,
+        "concat": true,
+        "cross_attn_only": false,
+        "regularize": 0.00,
+        "use_uncertainty": false
+    },
+    "checkpoint": {
+        "load_checkpoint": false,
+        "checkpoint_path": "/home/altair/Documents/UROP/2025_Summer/vastclammm/models/spectra_daep/galah_1k/ckpt/GALAHspectra_daep_4-4-4-4-128_concatTrue_crossattnonlyFalse_lr0.00025_epoch30_batch4_world1_reg0.0_aug1_date2025-07-30_18-42.pth"
+    },
+    "distributed": {
+        "init_method": "tcp://127.0.0.1:23456",
+        "backend": "nccl"
+    },
+    "data_processing": {
+        "num_workers": 1,
+        "pin_memory": true
+    },
+    "testing": {
+        "num_spectra": 5,
+        "num_samples": 100,
+        "num_examples": 3,
+        "save_results": true,
+        "batch_size": 8
+    }
+}

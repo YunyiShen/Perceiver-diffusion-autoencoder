@@ -1,0 +1,59 @@
+{
+    "env": "local",
+    "data": {
+        "data_path_local": "/home/altair/Documents/UROP/2025_Summer/vastclammm/data/",
+        "models_path_local": "/home/altair/Documents/UROP/2025_Summer/vastclammm/models/",
+        "data_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/data/",
+        "models_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/models/",
+        "test_name": "tessgalah_20k",
+        "lightcurve_test_name": "tess_20k",
+        "spectra_test_name": "galah_20k"
+    },
+    "training": {
+        "epoch": 300,
+        "lr": 2.5e-4,
+        "batch": 16,
+        "save_every": 10,
+        "aug": 1
+    },
+    "model": {
+        "bottlenecklen": 4,
+        "bottleneckdim": 4,
+        "spectra_tokens": 256,
+        "photometry_tokens": 256,
+        "model_dim": 256,
+        "encoder_layers": 4,
+        "decoder_layers": 4,
+        "encoder_heads": 4,
+        "decoder_heads": 8,
+        "concat": true,
+        "cross_attn_only": false,
+        "regularize": 0.00,
+        "mixer_selfattn": true,
+        "dropping_prob": 0.5,
+        "model_mode": "both",
+        "pretrained_spectra_encoder_path": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/models/lightcurves_daep/tess_20k/ckpt/TESSlightcurve_daep_4-4-4-4-4-8-256_concatTrue_crossattnonlyFalse_lr0.00025_epoch120_batch16_world4_reg0.0_aug1_date2025-08-02_17-24.pth",
+        "pretrained_photometry_encoder_path": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/models/spectra_daep/galah_20k/ckpt/GALAHspectra_daep_4-4-4-8-256_concatTrue_crossattnonlyFalse_lr0.00025_epoch120_batch16_world4_reg0.0_aug1"
+    },
+    "checkpoint": {
+        "load_checkpoint": false,
+        "checkpoint_path": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/models/speclc_daep/tessgalah_20k/ckpt/TESSGALAHspeclc_daep_4-4-4-4-4-8-256_concatTrue_crossattnonlyFalse_lr0.00025_epoch80_batch8_world4_reg0.0_aug1_date2025-08-03_01-59.pth"
+    },
+    "distributed": {
+        "init_method": "tcp://127.0.0.1:23456",
+        "backend": "nccl"
+    },
+    "data_processing": {
+        "num_workers": 1,
+        "pin_memory": true
+    },
+    "testing": {
+        "use_checkpoint_path": false,
+        "checkpoint_path": "/home/altair/Documents/UROP/2025_Summer/vastclammm/models/speclc_daep/tessgalah_20k/TESSGALAHspeclc_4-4-4-4-4-8-256_concatTrue_crossattnonlyFalse_lr0.00025_batch8_world4_reg0.0_aug1_date2025-08-03_14-40/ckpt/epoch_40_date_2025-08-03_19-30.pth",
+        "num_test_instances": 3,
+        "num_samples": 1,
+        "num_examples": 3,
+        "save_results": true,
+        "batch_size": 8
+    }
+}
