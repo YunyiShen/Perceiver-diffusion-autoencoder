@@ -9,13 +9,10 @@ import re
 
 # Import the necessary modules
 from daep.daep import unimodaldaep, multimodaldaep
-from GALAHspectra_dataset import GALAHDatasetProcessedSubset
-from TESSlightcurve_dataset import TESSDatasetProcessedSubset
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-from src.spectra.dataset.plot_galah import plot_spectra_simple  # type: ignore
-from general_utils import create_model_str
+from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessedSubset
+from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessedSubset
+from daep.utils.general_utils import create_model_str
+from daep.utils.plot_utils import plot_spectra_simple  # type: ignore
 
 
 def extract_epoch_from_model_path(model_path: str) -> str:
@@ -119,7 +116,7 @@ def auto_detect_model_path(config: Dict[str, Any], models_path: Path, test_name:
         Path to the most recent model checkpoint
     """
     # Look for models matching the current configuration
-    model_pattern = f"*{config['model']['bottlenecklen']}-{config['model']['bottleneckdim']}-{config['model']['encoder_layers']}-{config['model']['decoder_layers']}-{config['model']['encoder_heads']}-{config['model']['decoder_heads']}-{config['model']['model_dim']}_concat{config['model']['concat']}_crossattnonly{config['model']['cross_attn_only']}_lr{config['training']['lr']}*"
+    model_pattern = f"*{config['model']['bottlenecklen']}-{config['model']['bottleneckdim']}-{config['model']['encoder_layers']}-{config['model']['decoder_layers']}-{config['model']['encoder_heads']}-{config['model']['decoder_heads']}-{config['model']['model_dim']}*"
 
     ckpt_dir = models_path / test_name / "ckpt"
     if ckpt_dir.exists():
@@ -229,6 +226,11 @@ def load_trained_model(model_path: Path, device: torch.device, config: Dict[str,
         # If the checkpoint is a model, we can just load the model
         model = checkpoint
     
+    if config["model"]["use_uncertainty"]:
+        model.output_uncertainty = True
+    else:
+        model.output_uncertainty = False
+    
     model.eval()
     return model
 
@@ -261,22 +263,25 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
         uncertainties = results['uncertainties']
         
         # Calculate basic error metrics
-        mse = float(np.mean((predictions - ground_truth) ** 2))
-        mae = float(np.mean(np.abs(predictions - ground_truth)))
+        mse = float(np.nanmean((predictions - ground_truth) ** 2))
+        mae = float(np.nanmean(np.abs(predictions - ground_truth)))
         rmse = float(np.sqrt(mse))
         
         # Calculate relative errors
         relative_error = np.abs(predictions - ground_truth) / (np.abs(ground_truth) + 1e-8)
-        mean_relative_error = float(np.mean(relative_error))
+        mean_relative_error = float(np.nanmean(relative_error))
         
         # Calculate uncertainty calibration metrics
         # Check if uncertainties are well-calibrated (coverage)
         z_scores = (predictions - ground_truth) / (uncertainties + 1e-8)
-        coverage_68 = float(np.mean(np.abs(z_scores) <= 1.0))  # 68% confidence interval
-        coverage_95 = float(np.mean(np.abs(z_scores) <= 1.96))  # 95% confidence interval
+        coverage_68 = float(np.nanmean(np.abs(z_scores) <= 1.0))  # 68% confidence interval
+        coverage_95 = float(np.nanmean(np.abs(z_scores) <= 1.96))  # 95% confidence interval
+        z_scores_gt = (ground_truth - ground_truth_uncertainties) / (ground_truth_uncertainties + 1e-8)
+        coverage_68_gt = float(np.nanmean(np.abs(z_scores_gt) <= 1.0))  # 68% confidence interval
+        coverage_95_gt = float(np.nanmean(np.abs(z_scores_gt) <= 1.96))  # 95% confidence interval
         
         # Calculate mean uncertainty width
-        mean_uncertainty_width = float(np.mean(uncertainties))
+        mean_uncertainty_width = float(np.nanmean(uncertainties))
         
         # Calculate correlation between uncertainty and error
         errors = np.abs(predictions - ground_truth)
@@ -289,6 +294,8 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
             'mean_relative_error': mean_relative_error,
             'coverage_68': coverage_68,
             'coverage_95': coverage_95,
+            'coverage_68_gt': coverage_68_gt,
+            'coverage_95_gt': coverage_95_gt,
             'mean_uncertainty_width': mean_uncertainty_width,
             'uncertainty_error_correlation': uncertainty_error_correlation
         }
@@ -655,13 +662,16 @@ def plot_metrics_summary(metrics: Dict[str, float], save_dir: str = 'test_result
         
         # Plot 2: Coverage metrics
         coverage_metrics = ['coverage_68', 'coverage_95']
+        coverage_gt_metrics = ['coverage_68_gt', 'coverage_95_gt']
         coverage_values = [metrics[m] for m in coverage_metrics]
+        coverage_gt_values = [metrics[m] for m in coverage_gt_metrics]
         expected_coverage = [0.68, 0.95]
         x = np.arange(len(coverage_metrics))
-        width = 0.35
+        width = 0.35*2/3
         
-        axes[0, 1].bar(x - width/2, coverage_values, width, label='Actual', color='lightcoral')
-        axes[0, 1].bar(x + width/2, expected_coverage, width, label='Expected', color='lightgreen')
+        axes[0, 1].bar(x - width/3, coverage_values, width, label='Actual', color='lightcoral')
+        axes[0, 1].bar(x, coverage_gt_values, width, label='Ground Truth', color='lightblue')
+        axes[0, 1].bar(x + width/3, expected_coverage, width, label='Expected', color='lightgreen')
         axes[0, 1].set_title('Uncertainty Coverage')
         axes[0, 1].set_ylabel('Coverage')
         axes[0, 1].set_xticks(x)

@@ -21,13 +21,14 @@ TEST_NAME = 'galah_1k'
 
 class GALAHDataset(Dataset):
     
-    def __init__(self, data_dir: Path, train: bool, extract: bool = True,
+    def __init__(self, data_dir: Path, train: bool, extract: bool = True, use_uncertainty: bool = False,
                  raw_data_dir: Optional[Path] = None, galah_catalog_path: Optional[Path] = None,
                  ids_path: Optional[Path] = None):
         self.data_dir = data_dir
         if not data_dir.exists():
             data_dir.mkdir(parents=True, exist_ok=True)
         self.train = train
+        self.use_uncertainty = use_uncertainty
         # Size of GALAH spectra
         self.num_ccds = 4
         self.ccd_len = 4096
@@ -288,10 +289,10 @@ class GALAHDataset(Dataset):
         return fluxes, wavelengths, uncertainties, date_obs_jd
 
 class GALAHDatasetProcessed(GALAHDataset):
-    def __init__(self, data_dir: Path, train: bool, extract: bool = False,
+    def __init__(self, data_dir: Path, train: bool, extract: bool = False, use_uncertainty: bool = False,
                  raw_data_dir: Optional[Path] = None, galah_catalog_path: Optional[Path] = None,
                  ids_path: Optional[Path] = None):
-        super().__init__(data_dir, train, extract, raw_data_dir, galah_catalog_path, ids_path)
+        super().__init__(data_dir, train, extract, use_uncertainty, raw_data_dir, galah_catalog_path, ids_path)
         
         # Process the spectra (normalize w/ mean and std)
         self.process_spectra()
@@ -309,6 +310,9 @@ class GALAHDatasetProcessed(GALAHDataset):
                "phase": torch.tensor(0.),
             #    "mask": ~np.isnan(self.fluxes_normalized[idx])
                "idx": torch.tensor(idx)}
+        
+        if self.use_uncertainty:
+            res['flux_err'] = self.fluxes_errs_normalized[idx]
         
         return res
     
@@ -399,10 +403,10 @@ class GALAHDatasetProcessed(GALAHDataset):
 
 
 class GALAHDatasetProcessedSubset(GALAHDatasetProcessed):
-    def __init__(self, num_spectra: int, data_dir: Path, train: bool, extract: bool = False,
+    def __init__(self, num_spectra: int, data_dir: Path, train: bool, extract: bool = False, use_uncertainty: bool = False,
                  raw_data_dir: Optional[Path] = None, galah_catalog_path: Optional[Path] = None,
                  ids_path: Optional[Path] = None):
-        super().__init__(data_dir, train, extract, raw_data_dir, galah_catalog_path, ids_path)
+        super().__init__(data_dir, train, extract, use_uncertainty, raw_data_dir, galah_catalog_path, ids_path)
         
         # Set the random seed for reproducibility of the subset selection
         np.random.seed(42)

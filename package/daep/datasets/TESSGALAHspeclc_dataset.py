@@ -19,9 +19,11 @@ from torch.utils.data import Dataset
 
 class TESSGALAHDataset(Dataset):
     
-    def __init__(self, lightcurve_dataset: Optional[Path] = None, spectra_dataset: Optional[Path] = None):
+    def __init__(self, lightcurve_dataset: Optional[Path] = None, spectra_dataset: Optional[Path] = None,
+                 use_uncertainty: bool = False):
         self.lightcurve_dataset = lightcurve_dataset
         self.spectra_dataset = spectra_dataset
+        self.use_uncertainty = use_uncertainty
         
         print(f"Crossmatching lightcurve and spectra datasets")
         self.catalog = self.crossmatch()
@@ -59,8 +61,9 @@ class TESSGALAHDataset(Dataset):
         return self.catalog.iloc[idx]['spectra_idx']
 
 class TESSGALAHDatasetProcessed(TESSGALAHDataset):
-    def __init__(self, lightcurve_dataset: Optional[Path] = None, spectra_dataset: Optional[Path] = None):
-        super().__init__(lightcurve_dataset, spectra_dataset)
+    def __init__(self, lightcurve_dataset: Optional[Path] = None, spectra_dataset: Optional[Path] = None,
+                 use_uncertainty: bool = False):
+        super().__init__(lightcurve_dataset, spectra_dataset, use_uncertainty)
     
     def __len__(self):
         return len(self.catalog)
@@ -82,10 +85,9 @@ class TESSGALAHDatasetProcessed(TESSGALAHDataset):
                     "lightcurve_idx": torch.tensor(lightcurve_idx),
                     "speclc_idx": torch.tensor(idx)}
         
-        # indices = {"spectra_idx": torch.tensor(spectra_idx),
-        #            "lightcurve_idx": torch.tensor(lightcurve_idx),
-        #            "speclc_idx": torch.tensor(idx)
-        #            }
+        if self.use_uncertainty:
+            res['flux_err'] = self.spectra_dataset.fluxes_errs_normalized[spectra_idx]
+            photores['flux_err'] = self.lightcurve_dataset.fluxes_errs_normalized[lightcurve_idx]
         
         return {"spectra": res, "photometry": photores}
     
@@ -103,8 +105,9 @@ class TESSGALAHDatasetProcessed(TESSGALAHDataset):
 #TODO: FIX THIS -- spectra_idx is 711, out of bounds for num_samples = 30
 # slice crossmatched catalog to num_samples??
 class TESSGALAHDatasetProcessedSubset(TESSGALAHDatasetProcessed):
-    def __init__(self, num_samples: int, lightcurve_dataset: Optional[Path] = None, spectra_dataset: Optional[Path] = None):
-        super().__init__(lightcurve_dataset, spectra_dataset)
+    def __init__(self, num_samples: int, lightcurve_dataset: Optional[Path] = None, spectra_dataset: Optional[Path] = None,
+                 use_uncertainty: bool = False):
+        super().__init__(lightcurve_dataset, spectra_dataset, use_uncertainty)
         
         # Set the random seed for reproducibility of the subset selection
         np.random.seed(42)

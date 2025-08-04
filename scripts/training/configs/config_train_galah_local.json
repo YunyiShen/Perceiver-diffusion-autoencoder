@@ -1,10 +1,10 @@
 {
     "env": "local",
     "data": {
-        "data_path_local": "/home/altair/Documents/UROP/2025_Summer/vastclammm/data",
-        "models_path_local": "/home/altair/Documents/UROP/2025_Summer/vastclammm/models",
-        "data_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/data",
-        "models_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/vastclammm/models",
+        "data_path_local": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/data",
+        "models_path_local": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models",
+        "data_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data",
+        "models_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models",
         "test_name": "galah_1k"
     },
     "training": {
@@ -25,7 +25,7 @@
         "concat": true,
         "cross_attn_only": false,
         "regularize": 0.00,
-        "use_uncertainty": false
+        "use_uncertainty": true
     },
     "checkpoint": {
         "load_checkpoint": false,

@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import copy
 from tqdm import tqdm
+from daep.mmd import robust_mean_squared_error
 
 
 # from https://github.com/w86763777/pytorch-ddpm
@@ -49,15 +50,20 @@ class GaussianDiffusionTrainer(nn.Module):
         
         # Handle both single output and tuple output (prediction, uncertainty)
         if isinstance(model_output, tuple):
+            gt_input = noise
+            gt_uncertainty = x_0[name + '_err']
             pred, logvar = model_output
             # For now, we'll use the prediction for the diffusion loss
             # The uncertainty will be handled in the main loss function
-            model_output = pred
-        
-        if x_t.get("mask") is not None:
-            loss = F.mse_loss(model_output, noise, reduction='none')[~x_t['mask']]
+            if x_t.get("mask") is not None:
+                loss = robust_mean_squared_error(gt_input, pred, logvar, gt_uncertainty)[~x_t['mask']]
+            else:
+                loss = robust_mean_squared_error(gt_input, pred, logvar, gt_uncertainty)
         else:
-            loss = F.mse_loss(model_output, noise, reduction='none')
+            if x_t.get("mask") is not None:
+                loss = F.mse_loss(model_output, noise, reduction='none')[~x_t['mask']]
+            else:
+                loss = F.mse_loss(model_output, noise, reduction='none')
         del x_t
         return loss
 
@@ -190,7 +196,7 @@ class GaussianDiffusionSampler(nn.Module):
         x_0 = x_t
         return x_0
     
-    def ddim_sample(self, model, x_T, cond=None, name="flux", eta=0.0, steps=None):
+    def ddim_sample(self, model, x_T, cond=None, name="flux", eta=0.0, steps=None, output_uncertainty=False):
         """
         DDIM sampling loop. Deterministic if eta=0.
         Args:
@@ -200,8 +206,9 @@ class GaussianDiffusionSampler(nn.Module):
             cond: conditional context
             name: key to use in x_T dictionary
             steps: number of DDIM steps (defaults to full T)
+            output_uncertainty: if True, return (prediction, uncertainty) tuple when model outputs uncertainties
         Returns:
-            x_0: dictionary with denoised sample at x_0[name]
+            x_0: dictionary with denoised sample at x_0[name], or (x_0, uncertainty) if output_uncertainty=True
         """
         assert self.mean_type == 'epsilon', "DDIM requires epsilon prediction"
         if steps is None:
@@ -215,14 +222,19 @@ class GaussianDiffusionSampler(nn.Module):
         step_indices = torch.linspace(0, self.T - 1, steps, dtype=torch.long, device=device)
         x_t = {k: v.clone() for k, v in x_T.items()}  # deep copy
 
+        uncertainty_estimate = None
+
         for i in tqdm(reversed(range(steps))):
             t = step_indices[i].long()
             t_batch = t.expand(x_t[name].shape[0]).to(device)
 
-            # Predict epsilon (noise)
+            # Predict epsilon (noise) and potentially uncertainty
             model_output = model(x_t, t_batch.float().unsqueeze(1), cond)
             if isinstance(model_output, tuple):
-                eps, _ = model_output  # Ignore uncertainty for now
+                eps, uncertainty = model_output
+                # Store uncertainty from the final step if output_uncertainty is True
+                if output_uncertainty and i == 0:
+                    uncertainty_estimate = uncertainty
             else:
                 eps = model_output
 
@@ -256,6 +268,9 @@ class GaussianDiffusionSampler(nn.Module):
                 sigma * noise
             )
 
-        return x_t
+        if output_uncertainty and uncertainty_estimate is not None:
+            return x_t, uncertainty_estimate
+        else:
+            return x_t
 
 

@@ -30,7 +30,7 @@ def detect_env() -> str:
     if "SLURM_JOB_ID" in os.environ:
         return "remote"
     # Check for known remote base path
-    remote_base = "/nobackup/users/allisone/UROP_2025_Summer/vastclammm"
+    remote_base = "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder"
     if Path(remote_base).exists():
         return "remote"
     # Check for other possible remote indicators
@@ -43,12 +43,12 @@ def set_paths(env: str, spectra_or_lightcurve: str) -> Tuple[str, str, str, str]
     if spectra_or_lightcurve == 'lightcurve':
         spectra_or_lightcurve = 'lightcurves'
     if env == 'remote':
-        base_path = "/nobackup/users/allisone/UROP_2025_Summer/vastclammm"
+        base_path = "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder"
         model_path = base_path + f"/models/{spectra_or_lightcurve}"
         data_path = base_path + f"/data/{spectra_or_lightcurve}"
         raw_data_path = base_path + f"/data/{spectra_or_lightcurve}_raw"
     elif env == 'local':
-        base_path = "/home/altair/Documents/UROP/2025_Summer/vastclammm"
+        base_path = "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder"
         model_path = base_path + f"/models/{spectra_or_lightcurve}"
         data_path = base_path + f"/data/{spectra_or_lightcurve}"
         raw_data_path = base_path + f"/data/{spectra_or_lightcurve}_raw"
@@ -96,5 +96,5 @@ def create_model_str(config: Dict[str, Any], data_name: str) -> str:
         f"batch{config['training']['batch']}_reg{config['model']['regularize']}_"
         f"aug{config['training']['aug']}_date{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
     )
-    model_str = base_fmt
+    model_str = str(base_fmt)
     return model_str

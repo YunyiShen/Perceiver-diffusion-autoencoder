@@ -55,7 +55,7 @@ def initialize_model(device, model_mode, config):
             num_heads=config["model"]["encoder_heads"],
             ff_dim=config["model"]["model_dim"],
             num_layers=config["model"]["encoder_layers"],
-            concat=config["model"]["concat"]
+            concat=config["model"]["concat"],
         )
         score = spectraTransceiverScore2stages(
             bottleneck_dim=config["model"]["bottleneckdim"],
@@ -64,7 +64,8 @@ def initialize_model(device, model_mode, config):
             ff_dim=config["model"]["model_dim"],
             num_layers=config["model"]["decoder_layers"],
             concat=config["model"]["concat"],
-            cross_attn_only=config["model"]["cross_attn_only"]
+            cross_attn_only=config["model"]["cross_attn_only"],
+            output_uncertainty=config["model"]["use_uncertainty"]
         )
         mydaep = unimodaldaep(encoder, score, regularize=config["model"]["regularize"]).to(device)
     elif model_mode == "lightcurves":
@@ -78,7 +79,7 @@ def initialize_model(device, model_mode, config):
             ff_dim=config["model"]["model_dim"],
             num_layers=config["model"]["encoder_layers"],
             concat=config["model"]["concat"],
-            fourier=config["model"]["fourier_embed"]
+            fourier=config["model"]["fourier_embed"],
         )
         score = photometricTransceiverScore2stages(
             num_bands=1,
@@ -89,7 +90,8 @@ def initialize_model(device, model_mode, config):
             num_layers=config["model"]["decoder_layers"],
             concat=config["model"]["concat"],
             cross_attn_only=config["model"]["cross_attn_only"],
-            fourier=config["model"]["fourier_embed"]
+            fourier=config["model"]["fourier_embed"],
+            output_uncertainty=config["model"]["use_uncertainty"]
         )
         mydaep = unimodaldaep(encoder, score, regularize=config["model"]["regularize"]).to(device)
     elif model_mode == "both":
@@ -116,7 +118,8 @@ def initialize_model(device, model_mode, config):
                 ff_dim = config["model"]["model_dim"],
                 num_layers = config["model"]["encoder_layers"],
                 num_heads = config["model"]["encoder_heads"],
-                fourier=config["model"]["fourier_embed"]
+                fourier=config["model"]["fourier_embed"],
+                output_uncertainty=config["model"]["use_uncertainty"]
             )
         }
         encoder = PerceiverEncoder(
@@ -135,7 +138,8 @@ def initialize_model(device, model_mode, config):
                         ff_dim = config["model"]["model_dim"],
                         num_heads = config["model"]["decoder_heads"],
                         num_layers = config["model"]["decoder_layers"],
-                        concat = config["model"]["concat"]
+                        concat = config["model"]["concat"],
+                        output_uncertainty=config["model"]["use_uncertainty"]
                         ), 
             "photometry": photometricTransceiverScore2stages(
                 bottleneck_dim = config["model"]["bottleneckdim"],
@@ -145,13 +149,15 @@ def initialize_model(device, model_mode, config):
                     num_heads = config["model"]["decoder_heads"],
                     num_layers = config["model"]["decoder_layers"],
                     concat = config["model"]["concat"],
-                    fourier=config["model"]["fourier_embed"]
+                    fourier=config["model"]["fourier_embed"],
+                    output_uncertainty=config["model"]["use_uncertainty"]
             )
         }
         mydaep = multimodaldaep(
             tokenizers, encoder, scores,
             measurement_names={"spectra": "flux", "photometry": "flux"},
-            modality_dropping_during_training=partial(modality_drop, p_drop=config["model"]["dropping_prob"])
+            modality_dropping_during_training=partial(modality_drop, p_drop=config["model"]["dropping_prob"]),
+            output_uncertainty=config["model"]["use_uncertainty"]
         ).to(device)
     
     elif model_mode == "both_from_pretrained_encoders":
@@ -241,32 +247,32 @@ def train_worker(rank, world_size, config, spectra_or_lightcurves):
     if spectra_or_lightcurves == "spectra":
         data_name = 'GALAHspectra'
         data_path = Path(config["data"]["data_path"]) / 'spectra'
-        models_path = Path(config["data"]["models_path"]) / 'spectra_daep'
+        models_path = Path(config["data"]["models_path"]) / 'spectra'
         models_path.mkdir(parents=True, exist_ok=True)
         from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
-        training_data = GALAHDatasetProcessed(data_dir=data_path / test_name, train=True)
+        training_data = GALAHDatasetProcessed(data_dir=data_path / test_name, train=True, use_uncertainty=config["model"]["use_uncertainty"])
         collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=False)
     elif spectra_or_lightcurves == "lightcurves":
         data_name = 'TESSlightcurve'
         data_path = Path(config["data"]["data_path"]) / 'lightcurves'
-        models_path = Path(config["data"]["models_path"]) / 'lightcurves_daep'
+        models_path = Path(config["data"]["models_path"]) / 'lightcurves'
         models_path.mkdir(parents=True, exist_ok=True)
         from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
-        training_data = TESSDatasetProcessed(data_dir=data_path / test_name, train=True)
+        training_data = TESSDatasetProcessed(data_dir=data_path / test_name, train=True, use_uncertainty=config["model"]["use_uncertainty"])
         collate_fn = padding_collate_fun(supply=['flux', 'time'], mask_by="flux", multimodal=False)
     elif spectra_or_lightcurves == "both":
         data_name = 'TESSGALAHspeclc'
         data_path = Path(config["data"]["data_path"])
-        models_path = Path(config["data"]["models_path"]) / 'speclc_daep'
+        models_path = Path(config["data"]["models_path"]) / 'speclc'
         models_path.mkdir(parents=True, exist_ok=True)
         from daep.datasets.TESSGALAHspeclc_dataset import TESSGALAHDatasetProcessed
         from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
         from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
         lightcurve_test_name = config["data"]["lightcurve_test_name"]
         spectra_test_name = config["data"]["spectra_test_name"]
-        dataset_lc = TESSDatasetProcessed(data_dir=data_path / 'lightcurves' / lightcurve_test_name, train=True)
-        dataset_spectra = GALAHDatasetProcessed(data_dir=data_path / 'spectra' / spectra_test_name, train=True)
-        training_data = TESSGALAHDatasetProcessed(dataset_lc, dataset_spectra)
+        dataset_lc = TESSDatasetProcessed(data_dir=data_path / 'lightcurves' / lightcurve_test_name, train=True, use_uncertainty=config["model"]["use_uncertainty"])
+        dataset_spectra = GALAHDatasetProcessed(data_dir=data_path / 'spectra' / spectra_test_name, train=True, use_uncertainty=config["model"]["use_uncertainty"])
+        training_data = TESSGALAHDatasetProcessed(dataset_lc, dataset_spectra, use_uncertainty=config["model"]["use_uncertainty"])
         collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=True)
         
     # Dataset and loader with distributed sampler
@@ -327,6 +333,12 @@ def train_worker(rank, world_size, config, spectra_or_lightcurves):
         dist.broadcast(start_epoch_tensor, src=0)
         start_epoch = start_epoch_tensor.item()
     
+    # Create directories if they don't exist
+    model_dir = models_path / test_name / model_str
+    print(f"Saving model to directory: {model_dir}")
+    ckpt_dir = model_dir / "ckpt"
+    logs_dir = model_dir / "loss_plots"
+    
     # Use tqdm for progress tracking (only on main process to avoid duplicate bars)
     progress_bar = tqdm(range(start_epoch, config["training"]["epoch"]), desc="Training", unit="epoch", disable=(rank != 0))
     
@@ -340,8 +352,10 @@ def train_worker(rank, world_size, config, spectra_or_lightcurves):
             loss = mydaep(x)
             
             # Add NaN check
-            if torch.isnan(loss) or torch.isinf(loss):
-                print(f"NaN/Inf loss detected: {loss.item()}, skipping batch")
+            if torch.isnan(loss):
+                print(f"NaN loss detected: {loss.item()}, skipping batch")
+            elif torch.isinf(loss):
+                print(f"Inf loss detected: {loss.item()}, skipping batch")
                 continue
                 
             loss.backward()
@@ -354,13 +368,17 @@ def train_worker(rank, world_size, config, spectra_or_lightcurves):
         
         if rank == 0:  # Only save and log on main process
             this_epoch = np.array(losses).mean().item()
-            epoch_loss.append(math.log(this_epoch))
+            if config["model"]["use_uncertainty"]:
+                epoch_loss_log = this_epoch
+            else:
+                epoch_loss_log = math.log(this_epoch)
+            epoch_loss.append(epoch_loss_log)
             epoches.append(ep)
             
             # Update epoch progress bar
             progress_bar.set_postfix({
                 'avg_loss': f'{this_epoch:.4f}',
-                'log_loss': f'{math.log(this_epoch):.4f}'
+                'log_loss': f'{epoch_loss_log:.4f}' #f'{math.log(this_epoch):.4f}'
             })
             
             if (ep+1) % config["training"]["save_every"] == 0:
@@ -369,10 +387,7 @@ def train_worker(rank, world_size, config, spectra_or_lightcurves):
                     os.remove(target_save)
                 if loss_plot_path is not None:
                     os.remove(loss_plot_path)
-                # Create directories if they don't exist
-                model_dir = models_path / test_name / model_str
-                ckpt_dir = model_dir / "ckpt"
-                logs_dir = model_dir / "loss_plots"
+                
                 ckpt_dir.mkdir(parents=True, exist_ok=True)
                 logs_dir.mkdir(parents=True, exist_ok=True)
                 
@@ -392,15 +407,6 @@ def train_worker(rank, world_size, config, spectra_or_lightcurves):
                     'config': config_w_date
                 }
                 
-                # if config["model"]["model_mode"] != "both_from_pretrained_encoders":
-                #     model_str = f"{config['model']['bottlenecklen']}-{config['model']['bottleneckdim']}-{config['model']['encoder_layers']}-{config['model']['decoder_layers']}-{config['model']['encoder_heads']}-{config['model']['decoder_heads']}-{config['model']['model_dim']}_concat{config['model']['concat']}_crossattnonly{config['model']['cross_attn_only']}_lr{config['training']['lr']}_epoch{ep+1}_batch{config['training']['batch']}_world{world_size}_reg{config['model']['regularize']}_aug{config['training']['aug']}_date{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
-                # else:
-                #     model_str = f"{config['model']['bottlenecklen']}-{config['model']['bottleneckdim']}-{config['model']['spectra_tokens']}-{config['model']['photometry_tokens']}-{config['model']['encoder_layers']}-{config['model']['decoder_layers']}-{config['model']['encoder_heads']}-{config['model']['decoder_heads']}-{config['model']['model_dim']}_concat{config['model']['concat']}_crossattnonly{config['model']['cross_attn_only']}_lr{config['training']['lr']}_modaldropP{config['model']['dropping_prob']}_epoch{ep+1}_batch{config['training']['batch']}_world{world_size}_reg{config['model']['regularize']}_aug{config['training']['aug']}_date{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
-                
-                # # Save checkpoint
-                # target_save = ckpt_dir / f"{data_name}_daep_{model_str}.pth"
-                
-                
                 # Save checkpoint
                 target_save = ckpt_dir / f"epoch_{ep+1}_date_{str(datetime.now().strftime('%Y-%m-%d_%H-%M'))}.pth"
                 
@@ -410,7 +416,7 @@ def train_worker(rank, world_size, config, spectra_or_lightcurves):
                 loss_plot_path = logs_dir / f"epoch_{ep+1}_date_{str(datetime.now().strftime('%Y-%m-%d_%H-%M'))}.png"
                 loss_plot(epoches, epoch_loss, start_epoch, config, loss_plot_path)
                 
-            print(f"[GPU {rank}] Epoch {ep+1} log-loss: {math.log(this_epoch):.4f}")
+            print(f"[GPU {rank}] Epoch {ep+1} log-loss: {epoch_loss_log:.4f}")
     
     # Close progress bar
     if rank == 0:

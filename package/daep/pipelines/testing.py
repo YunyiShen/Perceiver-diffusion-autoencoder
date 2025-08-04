@@ -24,11 +24,6 @@ from daep.utils.test_utils import (load_trained_model, auto_detect_model_path, e
                         calculate_metrics, plot_example_spectra, plot_metrics_summary, save_results,
                         plot_example_lightcurves)
 
-import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-from src.spectra.dataset.plot_galah import plot_spectra_simple  # type: ignore
-
 # Global device variable
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Using device: {device}")
@@ -62,7 +57,8 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
             num_spectra=config["testing"]["num_spectra"], 
             data_dir=data_path / 'spectra' / test_name, 
             train=False, 
-            extract=False
+            extract=False,
+            use_uncertainty=config["model"]["use_uncertainty"]
         )
         collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=False)
     elif spectra_or_lightcurves == "lightcurves":
@@ -70,7 +66,8 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
             num_lightcurves=config["testing"]["num_lightcurves"], 
             data_dir=data_path / 'lightcurves' / test_name, 
             train=False, 
-            extract=False
+            extract=False,
+            use_uncertainty=config["model"]["use_uncertainty"]
         )
         collate_fn = padding_collate_fun(supply=['flux', 'time'], mask_by="flux", multimodal=False)
     elif spectra_or_lightcurves == "both":
@@ -79,17 +76,20 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
         spectra_data = GALAHDatasetProcessed(
             data_dir=data_path / 'spectra' / config["data"]["spectra_test_name"], 
             train=False, 
-            extract=False
+            extract=False,
+            use_uncertainty=config["model"]["use_uncertainty"]
         )
         lightcurve_data = TESSDatasetProcessed(
             data_dir=data_path / 'lightcurves' / config["data"]["lightcurve_test_name"], 
             train=False, 
-            extract=False
+            extract=False,
+            use_uncertainty=config["model"]["use_uncertainty"]
         )
         test_data = TESSGALAHDatasetProcessedSubset(
             num_samples=config["testing"]["num_test_instances"],
             lightcurve_dataset=lightcurve_data,
-            spectra_dataset=spectra_data
+            spectra_dataset=spectra_data,
+            use_uncertainty=config["model"]["use_uncertainty"]
         )
         collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=True)
     
@@ -104,92 +104,9 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
     
     return test_data, test_loader
 
-# def setup_test_data_and_loader_multimodal(config: Dict[str, Any], data_path: Path, 
-#                               test_name: str, batch_size: int, modalities: list = ["spectra", "lightcurves"]) -> Tuple[Dataset, DataLoader]:
-#     """
-#     Set up test dataset and data loader.
-    
-#     Parameters
-#     ----------
-#     config : dict
-#         Configuration dictionary
-#     data_path : Path
-#         Path to data directory
-#     test_name : str
-#         Name of the test dataset
-#     batch_size : int
-#         Batch size for data loader
-#     modalities : list, optional
-#         List of modalities to evaluate. Defaults to ["spectra", "lightcurves"].
-        
-#     Returns
-#     -------
-#     tuple
-#         (test_dataset, test_loader)
-#     """
-#     print("Loading test datasets...")
-#     test_data = {}
-#     test_loaders = {}
-    
-#     if "spectra" in modalities:
-#         spectra_data = GALAHDatasetProcessedSubset(
-#             num_spectra=config["testing"]["num_test_instances"], 
-#             data_dir=data_path / 'spectra' / config["data"]["spectra_test_name"], 
-#             train=False, 
-#             extract=False
-#         )
-#         test_data["spectra"] = spectra_data
-#         spectra_collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=False)
-#         test_loaders["spectra"] = DataLoader(
-#             spectra_data, 
-#             batch_size=batch_size, 
-#             collate_fn=spectra_collate_fn,
-#             num_workers=config["data_processing"]["num_workers"],
-#             pin_memory=config["data_processing"]["pin_memory"]
-#         )
-    
-#     if "lightcurves" in modalities:
-#         lightcurve_data = TESSDatasetProcessedSubset(
-#             num_lightcurves=config["testing"]["num_test_instances"], 
-#             data_dir=data_path / 'lightcurves' / config["data"]["lightcurve_test_name"], 
-#             train=False, 
-#             extract=False
-#         )
-#         test_data["lightcurves"] = lightcurve_data
-#         lightcurve_collate_fn = padding_collate_fun(supply=['flux', 'time'], mask_by="flux", multimodal=False)
-#         test_loaders["lightcurves"] = DataLoader(
-#             lightcurve_data, 
-#             batch_size=batch_size, 
-#             collate_fn=lightcurve_collate_fn,
-#             num_workers=config["data_processing"]["num_workers"],
-#             pin_memory=config["data_processing"]["pin_memory"]
-#         )
-    
-#     if "spectra" in modalities and "lightcurves" in modalities:
-#         both_data = TESSGALAHDatasetProcessedSubset(
-#             num_samples=config["testing"]["num_test_instances"],
-#             lightcurve_dataset=lightcurve_data,
-#             spectra_dataset=spectra_data
-#         )
-#         test_data["both"] = both_data
-#         both_collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=True)
-#         test_loaders["both"] = DataLoader(
-#             both_data, 
-#             batch_size=batch_size, 
-#             collate_fn=both_collate_fn,
-#             num_workers=config["data_processing"]["num_workers"],
-#             pin_memory=config["data_processing"]["pin_memory"]
-#         )
-#     else:
-#         raise NotImplementedError(f"Only implemented for modalities = ['spectra', 'lightcurves']")
-    
-#     print("Creating test data loader...")
-    
-#     return test_data, test_loaders
-
 def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test_dataset,
                    num_samples: int = 100, spectra_or_lightcurves: str = "spectra",
-                   input_modalities: Optional[list] = None) -> Dict[str, np.ndarray]:
+                   input_modalities: Optional[list] = None, use_uncertainty: bool = False) -> Dict[str, np.ndarray]:
     """
     Evaluate the model on test data and generate predictions with uncertainty estimates.
     
@@ -226,11 +143,14 @@ def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test
             
             # Generate multiple samples for uncertainty estimation using diffusion sampling
             predictions = []
+            if use_uncertainty:
+                predictions_uncertainties = []
             for _ in range(num_samples):
                 # Use the model's reconstruct method to get actual reconstructions
                 # This samples from the diffusion process to generate reconstructions
                 if isinstance(model, unimodaldaep):
                     reconstructed = model.reconstruct(batch)
+                    print(f"reconstructed: {reconstructed}")
                 elif isinstance(model, multimodaldaep):
                     alt_modalities_dict = {"spectra": ["spectra"], "lightcurves": ["photometry"], "both": ["spectra", "photometry"]}
                     input_modalities = alt_modalities_dict[input_modalities]
@@ -239,9 +159,17 @@ def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test
                     print(f"Output modalities: {out_keys}")
                     
                     reconstructed = model.reconstruct(batch, condition_keys=input_modalities, out_keys=out_keys)
+                    print(f"reconstructed: {reconstructed}")
                 
                 # Handle different return types from the model
-                if isinstance(reconstructed, dict) and 'flux' in reconstructed:
+                if use_uncertainty:
+                    if not isinstance(reconstructed, tuple):
+                        raise ValueError(f"Unexpected model output type: {type(reconstructed)}")
+                    pred_flux, pred_flux_uncertainty = reconstructed
+                    print(f"pred_flux: {pred_flux}")
+                    print(f"pred_flux_uncertainty: {pred_flux_uncertainty}")
+                    pred_flux = pred_flux['flux']
+                elif isinstance(reconstructed, dict) and 'flux' in reconstructed:
                     # Model returns a dictionary with 'flux' key
                     pred_flux = reconstructed['flux']
                 elif isinstance(reconstructed, dict) and ('photometry' in reconstructed):
@@ -255,11 +183,17 @@ def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test
                     raise ValueError(f"Unexpected model output type: {type(reconstructed)}")
                 
                 predictions.append(pred_flux.cpu().numpy())
+                if use_uncertainty:
+                    predictions_uncertainties.append(pred_flux_uncertainty.cpu().numpy())
             
             predictions = np.array(predictions)  # Shape: (num_samples, batch_size, seq_len)
+            if use_uncertainty:
+                predictions_uncertainties = np.array(predictions_uncertainties)  # Shape: (num_samples, batch_size, seq_len)
             
             # Calculate mean and std across samples
             pred_mean = np.mean(predictions, axis=0)
+            if use_uncertainty:
+                pred_uncertainty_mean = np.mean(predictions_uncertainties, axis=0)
             pred_std = np.std(predictions, axis=0)
             
             # Get ground truth - handle batch indexing properly
@@ -306,13 +240,21 @@ def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test
             if spectra_or_lightcurves == "spectra":
                 if isinstance(test_dataset, GALAHDatasetProcessedSubset):
                     pred_mean = test_dataset.unprocess_spectra(flux=pred_mean, idx=test_instance_idx)
+                    if use_uncertainty:
+                        pred_uncertainty_mean = pred_uncertainty_mean * np.repeat(test_dataset._fluxes_stds[test_instance_idx][:, None], pred_std.shape[1], axis=1)
                 elif isinstance(test_dataset, TESSGALAHDatasetProcessedSubset):
                     pred_mean = test_dataset.spectra_dataset.unprocess_spectra(flux=pred_mean, idx=test_instance_idx)
+                    if use_uncertainty:
+                        pred_uncertainty_mean = pred_uncertainty_mean * np.repeat(test_dataset._fluxes_stds[test_instance_idx][:, None], pred_std.shape[1], axis=1)
             elif spectra_or_lightcurves == "lightcurves":
                 if isinstance(test_dataset, TESSDatasetProcessedSubset):
                     unprocessed_predictions = test_dataset.unprocess_lightcurves(idx=test_instance_idx, time=wavelengths_or_times, flux=pred_mean)
+                    if use_uncertainty:
+                        pred_uncertainty_mean = pred_uncertainty_mean * np.repeat(test_dataset._fluxes_stds[test_instance_idx][:, None], pred_std.shape[1], axis=1)
                 elif isinstance(test_dataset, TESSGALAHDatasetProcessedSubset):
                     unprocessed_predictions = test_dataset.lightcurve_dataset.unprocess_lightcurves(idx=test_instance_idx, time=wavelengths_or_times, flux=pred_mean)
+                    if use_uncertainty:
+                        pred_uncertainty_mean = pred_uncertainty_mean * np.repeat(test_dataset.lightcurve_dataset._fluxes_errs[test_instance_idx][:, None], pred_std.shape[1], axis=1)
                 pred_mean = unprocessed_predictions['flux']
                 wavelengths_or_times = unprocessed_predictions['time']
             
@@ -330,7 +272,10 @@ def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test
             all_predictions.append(pred_mean)
             all_ground_truth.append(ground_truth)
             all_ground_truth_uncertainties.append(ground_truth_uncertainties)
-            all_uncertainties.append(pred_std)
+            if use_uncertainty:
+                all_uncertainties.append(pred_uncertainty_mean)
+            else:
+                all_uncertainties.append(pred_std)
             all_wavelengths_or_times.append(wavelengths_or_times)
             all_star_ids.extend(star_ids_batch)
     
@@ -361,7 +306,8 @@ def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test
 
 def evaluate_model_multimodal(model: multimodaldaep, test_loader, test_dataset, num_samples: int = 100,
                               input_modalities: list = ["spectra", "lightcurves"],
-                              output_modalities: list = ["spectra", "lightcurves"]) -> Dict[str, np.ndarray]:
+                              output_modalities: list = ["spectra", "lightcurves"],
+                              use_uncertainty: bool = False) -> Dict[str, np.ndarray]:
     """
     Evaluate the model on test data and generate predictions with uncertainty estimates.
     
@@ -392,7 +338,8 @@ def evaluate_model_multimodal(model: multimodaldaep, test_loader, test_dataset, 
                                                                           test_dataset,
                                                                           num_samples,
                                                                           spectra_or_lightcurves=output_modality,
-                                                                          input_modalities=input_modality)
+                                                                          input_modalities=input_modality,
+                                                                          use_uncertainty=use_uncertainty)
     
     return all_results
 
@@ -459,9 +406,9 @@ def run_tests(config_path: str = "config.json", spectra_or_lightcurves: str = "s
         checkpoint_path = Path(config["testing"]["checkpoint_path"])
     else:
         if spectra_or_lightcurves == "both":
-            models_subdir = "speclc_daep"
+            models_subdir = "speclc"
         else:
-            models_subdir = spectra_or_lightcurves+"_daep"
+            models_subdir = spectra_or_lightcurves
         checkpoint_path = auto_detect_model_path(config, models_path / models_subdir, test_name)
     print(f"Loading model from: {checkpoint_path}")
     
@@ -476,7 +423,7 @@ def run_tests(config_path: str = "config.json", spectra_or_lightcurves: str = "s
             data_name = "TESSlightcurve"
         elif spectra_or_lightcurves == "both":
             data_name = "TESSGALAHspeclc"
-        analysis_dir = create_analysis_directory(config, models_path / (spectra_or_lightcurves+"_daep"), test_name, epoch_number, data_name=data_name)
+        analysis_dir = create_analysis_directory(config, models_path / spectra_or_lightcurves, test_name, epoch_number, data_name=data_name)
     else:
         analysis_dir = checkpoint_path.parent.parent / "analysis_results" / f"epoch_{epoch_number}"
     print(f"Saving results to analysis directory: {analysis_dir}")
@@ -529,9 +476,9 @@ def run_tests(config_path: str = "config.json", spectra_or_lightcurves: str = "s
     
     print("Evaluating model...")
     if spectra_or_lightcurves == "both":
-        results = evaluate_model_multimodal(model, test_loader, test_data, num_samples, input_modalities=input_modalities, output_modalities=output_modalities)
+        results = evaluate_model_multimodal(model, test_loader, test_data, num_samples, input_modalities=input_modalities, output_modalities=output_modalities, use_uncertainty=config["model"]["use_uncertainty"])
     else:
-        results = evaluate_model(model, test_loader, test_data, num_samples, spectra_or_lightcurves)
+        results = evaluate_model(model, test_loader, test_data, num_samples, spectra_or_lightcurves, use_uncertainty=config["model"]["use_uncertainty"])
     
     print("Calculating metrics...")
     metrics = calculate_metrics(results, input_modalities=input_modalities, output_modalities=output_modalities)

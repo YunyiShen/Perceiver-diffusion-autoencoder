@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .diffusion import GaussianDiffusionTrainer, GaussianDiffusionSampler
-from .util_layers import SinusoidalMLPPositionalEmbedding
-from .mmd import RBF, MMD, robust_mean_squared_error, mean_squared_error
+from daep.diffusion import GaussianDiffusionTrainer, GaussianDiffusionSampler
+from daep.util_layers import SinusoidalMLPPositionalEmbedding
+from daep.mmd import RBF, MMD, robust_mean_squared_error, mean_squared_error
 import torch.distributions as dist
 import random
 import torch
@@ -55,21 +55,30 @@ class unimodaldaep(nn.Module):
         else:
             mmd_loss = 0.0
         
-        if self.output_uncertainty:
-            # Use uncertainty-aware loss if uncertainties are available
-            if 'uncertainty' in x[self.name]:
-                score_output = self.diffusion_trainer(self.score, x, z, self.name)
-                if isinstance(score_output, tuple):
-                    pred, logvar = score_output
-                    uncertainty = x[self.name]['uncertainty']
-                    target = x[self.name][self.name]  # The actual target values
-                    score_matching_loss = robust_mean_squared_error(target, pred, logvar, uncertainty).mean()
-                else:
-                    score_matching_loss = score_output.mean()
-            else:
-                score_matching_loss = self.diffusion_trainer(self.score, x, z, self.name).mean()
-        else:
-            score_matching_loss = self.diffusion_trainer(self.score, x, z, self.name).mean()
+        # if self.output_uncertainty:
+        #     # Use uncertainty-aware loss if uncertainties are available
+        #     print(f"Trying to use uncertainty-aware loss")
+        #     try:
+        #         score_output = self.diffusion_trainer(self.score, x, z, self.name)
+        #         if isinstance(score_output, tuple):
+        #             pred, logvar = score_output
+        #             print(f"logvar: {logvar}")
+        #             uncertainty = x[self.name + '_err']
+        #             target = x[self.name]  # The actual target values
+        #             score_matching_loss = robust_mean_squared_error(target, pred, logvar, uncertainty).mean()
+        #         else:
+        #             score_matching_loss = score_output.mean()
+        #     except KeyError:
+        #         score_matching_loss = self.diffusion_trainer(self.score, x, z, self.name).mean()
+        # else:
+        # Compute the mean of the score matching loss while ignoring NaN values for numerical stability
+        score_matching_losses = self.diffusion_trainer(self.score, x, z, self.name)
+        # Print the number of NaN values in the score_matching_losses tensor for debugging purposes
+        # num_nans = torch.isnan(score_matching_losses).sum().item()
+        # if num_nans == 0:
+        #     print(f"No NaNs in score_matching_losses")
+        # print(f"Number of NaNs in score_matching_losses: {torch.isnan(score_matching_losses).sum().item()}")
+        score_matching_loss = torch.nanmean(score_matching_losses)
 
         return mmd_loss + score_matching_loss
     
@@ -77,7 +86,7 @@ class unimodaldaep(nn.Module):
         self.eval()
         with torch.no_grad():
             if ddim:
-                return self.diffusion_sampler.ddim_sample(self.score, x_T, z, self.name, steps=ddim_steps)
+                return self.diffusion_sampler.ddim_sample(self.score, x_T, z, self.name, steps=ddim_steps, output_uncertainty=self.output_uncertainty)
             return self.diffusion_sampler(self.score, x_T, z, self.name)
     
 
@@ -87,7 +96,15 @@ class unimodaldaep(nn.Module):
         noise = torch.randn_like(x_0[name]).to(x_0[name].device)
         x_t = x_0
         x_t[name] = noise
-        return self.sample(z, x_t, ddim, ddim_steps)
+        
+        # Use the main sample method which now handles uncertainty output
+        result = self.sample(z, x_t, ddim, ddim_steps)
+        
+        if self.output_uncertainty and isinstance(result, tuple):
+            prediction, uncertainty = result
+            return prediction, uncertainty
+        else:
+            return result
 
 
 def modality_drop(keys, p_drop=0.2, drop_all=False):
@@ -193,11 +210,11 @@ class multimodaldaep(nn.Module):
                 score_output = self.diffusion_trainer(self.get_score(key), x[key], z, self.names[key])
                 if isinstance(score_output, tuple):
                     pred, logvar = score_output
-                    if 'uncertainty' in x[key]:
-                        uncertainty = x[key]['uncertainty']
+                    try:
+                        uncertainty = x[key + '_err']
                         target = x[key][self.names[key]]  # The actual target values
                         loss = robust_mean_squared_error(target, pred, logvar, uncertainty).mean(axis=0).flatten()
-                    else:
+                    except KeyError:
                         loss = score_output.mean(axis=0).flatten()
                 else:
                     loss = score_output.mean(axis=0).flatten()
@@ -218,7 +235,7 @@ class multimodaldaep(nn.Module):
         self.eval()
         with torch.no_grad():
             if ddim:
-                return self.diffusion_sampler.ddim_sample(score, x_T, z, name, steps=ddim_steps)
+                return self.diffusion_sampler.ddim_sample(score, x_T, z, name, steps=ddim_steps, output_uncertainty=self.output_uncertainty)
             return self.diffusion_sampler(score, x_T, z, name)
     
     
@@ -233,10 +250,25 @@ class multimodaldaep(nn.Module):
         
         x_t = x_0
         res = {}
+        uncertainties = {} if self.output_uncertainty else None
         
         for key in out_keys:
             noise = torch.randn_like(x_0[key][self.names[key]]).to(x_0[key][self.names[key]].device)
         
             x_t[key][self.names[key]] = noise
-            res[key] = self.sample(z, x_t[key], self.get_score(key), self.names[key], ddim, ddim_steps)
-        return res
+            
+            if self.output_uncertainty:
+                result = self.sample(z, x_t[key], self.get_score(key), self.names[key], ddim, ddim_steps)
+                if isinstance(result, tuple):
+                    prediction, uncertainty = result
+                    res[key] = prediction
+                    uncertainties[key] = uncertainty
+                else:
+                    res[key] = result
+            else:
+                res[key] = self.sample(z, x_t[key], self.get_score(key), self.names[key], ddim, ddim_steps)
+        
+        if self.output_uncertainty and uncertainties:
+            return res, uncertainties
+        else:
+            return res

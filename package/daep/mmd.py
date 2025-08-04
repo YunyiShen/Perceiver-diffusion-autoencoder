@@ -50,6 +50,7 @@ def robust_mean_squared_error(
     variance: torch.Tensor,
     labels_err: torch.Tensor,
     epsilon: float = 1e-8,
+    reduction: str = "none",
 ) -> torch.Tensor:
     """
     Robust mean squared error loss that accounts for both predicted and input uncertainties.
@@ -66,20 +67,33 @@ def robust_mean_squared_error(
         Input uncertainty values.
     epsilon : float, optional
         Small constant for numerical stability, by default 1e-8.
+    reduction : str, optional
+        Reduction method: 'none' to preserve dimensions, 'mean' to average, 'sum' to sum, by default "none".
         
     Returns
     -------
     torch.Tensor
-        Robust MSE loss value.
+        Robust MSE loss value(s). Shape matches y_true if reduction='none', otherwise scalar.
     """
     # Neural Net is predicting log(var), so take exp, takes account the target variance, and take log back
     total_var = torch.exp(variance) + torch.square(labels_err) + epsilon
+    # print(f"total_var: {total_var}")
+    # print(f"y_true: {y_true}")
+    # print(f"y_pred: {y_pred}")
+    # print(f"variance: {variance}")
+    # print(f"labels_err: {labels_err}")
     wrapper_output = 0.5 * (
         (torch.square(y_true - y_pred) / total_var) + torch.log(total_var)
     )
-
-    losses = wrapper_output.sum() / y_true.shape[0]
-    return losses
+    # print(f"wrapper_output: {wrapper_output}")
+    if reduction == "none":
+        return wrapper_output
+    elif reduction == "mean":
+        return wrapper_output.sum() / y_true.shape[0]
+    elif reduction == "sum":
+        return wrapper_output.sum()
+    else:
+        raise ValueError(f"Invalid reduction method: {reduction}. Use 'none', 'mean', or 'sum'.")
 
 
 def mean_squared_error(y_true: torch.Tensor, y_pred: torch.Tensor) -> torch.Tensor:

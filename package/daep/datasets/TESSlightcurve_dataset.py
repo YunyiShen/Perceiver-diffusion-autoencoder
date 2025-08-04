@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split
 from typing import Optional, List
 from astropy.time import Time
 import torch
+from torch.utils.data import Dataset
 from scipy.ndimage import gaussian_filter1d
 from daep.utils.general_utils import detect_env, convert_to_native_byte_order, set_paths
 
@@ -16,17 +17,11 @@ ENV = detect_env()
 BASE_PATH, MODEL_PATH, DATA_PATH, RAW_DATA_PATH = set_paths(ENV, 'lightcurve')
 TESS_XMATCH_CATALOG_PATH = RAW_DATA_PATH + '/id_catalog_gt_1800.fits'
 
-TEST_NAME = 'tess_20k'
-# TARGETS_PATH = RAW_DATA_PATH + '/' + TEST_NAME + '/catalog.csv'
-# TARGETS_PATH = RAW_DATA_PATH + "/tessv1/targets_qlp.csv"
-
-
-from torch.utils.data import Dataset
-
+TEST_NAME = 'tessv1'
 
 class TESSDataset(Dataset):
     
-    def __init__(self, data_dir: Path, train: bool, extract: bool = True,
+    def __init__(self, data_dir: Path, train: bool, extract: bool = True, use_uncertainty: bool = False,
                  raw_data_dir: Optional[Path] = None, tess_xmatch_catalog_path: Optional[Path] = None,
                  targets_path: Optional[Path] = None):
         self.data_dir = data_dir
@@ -35,7 +30,7 @@ class TESSDataset(Dataset):
         self.train = train
         # Size of GALAH lightcurve
         self.seq_len = 1171
-        
+        self.use_uncertainty = use_uncertainty
         self._set_legacy_data_paths()
         if extract:
             self.extract_data(raw_data_dir, tess_xmatch_catalog_path, targets_path) 
@@ -251,8 +246,6 @@ class TESSDataset(Dataset):
             logg = hdulist[0].header['LOGG']
             date_obs_jd = Time(hdulist[1].header['TSTART'] + 2457000.0, format='jd', scale='tdb').jd
             
-            # dont_exclude = [0,64,256,1024,2048,8192]
-            
             # read time, sap flux, quality flag
             tess_bjds = hdulist[1].data['TIME']
             sap_fluxes = hdulist[1].data['SAP_FLUX']
@@ -260,15 +253,18 @@ class TESSDataset(Dataset):
             qual_flags = hdulist[1].data['QUALITY']
             
             # # remove flagged data
-            # where_gt0 = np.where(np.isin(qual_flags,dont_exclude))
-            # tess_bjds = tess_bjds[where_gt0]
-            # sap_fluxes = sap_fluxes[where_gt0]
-            # sap_flux_errs = sap_flux_errs[where_gt0]
+            dont_exclude = [0,64,256,1024,2048,8192]
+            where_gt0 = np.where(np.isin(qual_flags,dont_exclude))
+            tess_bjds = tess_bjds[where_gt0]
+            sap_fluxes = sap_fluxes[where_gt0]
+            sap_flux_errs = sap_flux_errs[where_gt0]
+            qual_flags = qual_flags[where_gt0]
             
             return {
                 'time': tess_bjds,
                 'flux': sap_fluxes,
                 'flux_err': sap_flux_errs,
+                'quality': qual_flags,
                 'ticid': ticid,
                 'teff': teff,
                 'logg': logg,
@@ -276,10 +272,10 @@ class TESSDataset(Dataset):
             }
 
 class TESSDatasetProcessed(TESSDataset):
-    def __init__(self, data_dir: Path, train: bool, extract: bool = False,
+    def __init__(self, data_dir: Path, train: bool, extract: bool = False, use_uncertainty: bool = False,
                  raw_data_dir: Optional[Path] = None, tess_xmatch_catalog_path: Optional[Path] = None,
                  targets_path: Optional[Path] = None):
-        super().__init__(data_dir, train, extract, raw_data_dir, tess_xmatch_catalog_path, targets_path)
+        super().__init__(data_dir, train, extract, use_uncertainty, raw_data_dir, tess_xmatch_catalog_path, targets_path)
         
         # Process the lightcurves (normalize w/ mean and std)
         self.process_lightcurves()
@@ -300,6 +296,9 @@ class TESSDatasetProcessed(TESSDataset):
                "time": self.times_normalized[idx], 
             #    "mask": ~torch.isnan(self.fluxes_normalized[idx]),   # THIS BREAKS THE TRAINING -> loss NaN on epoch 1
                "idx": torch.tensor(idx)}
+        
+        if self.use_uncertainty:
+            res['flux_err'] = self.fluxes_errs_normalized[idx]
         
         return res
     
@@ -473,10 +472,10 @@ class TESSDatasetProcessed(TESSDataset):
 
 
 class TESSDatasetProcessedSubset(TESSDatasetProcessed):
-    def __init__(self, num_lightcurves: int, data_dir: Path, train: bool, extract: bool = False,
+    def __init__(self, num_lightcurves: int, data_dir: Path, train: bool, extract: bool = False, use_uncertainty: bool = False,
                  raw_data_dir: Optional[Path] = None, tess_xmatch_catalog_path: Optional[Path] = None,
                  targets_path: Optional[Path] = None):
-        super().__init__(data_dir, train, extract, raw_data_dir, tess_xmatch_catalog_path, targets_path)
+        super().__init__(data_dir, train, extract, use_uncertainty, raw_data_dir, tess_xmatch_catalog_path, targets_path)
         
         # Set the random seed for reproducibility of the subset selection
         np.random.seed(42)
