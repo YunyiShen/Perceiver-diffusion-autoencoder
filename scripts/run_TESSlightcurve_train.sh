@@ -55,4 +55,5 @@ echo "PANDAS_NUM_THREADS: $PANDAS_NUM_THREADS"
 echo "CPUINFO_ARCH_NAME: $CPUINFO_ARCH_NAME"
 
 # Run the dataset creation script
-python training/TESSlightcurve_train.py --config_path config_train_tess.json 
+cd training
+python TESSlightcurve_train.py --config_path config_train_tess.json 

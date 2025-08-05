@@ -150,24 +150,18 @@ def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test
                 # This samples from the diffusion process to generate reconstructions
                 if isinstance(model, unimodaldaep):
                     reconstructed = model.reconstruct(batch)
-                    print(f"reconstructed: {reconstructed}")
                 elif isinstance(model, multimodaldaep):
                     alt_modalities_dict = {"spectra": ["spectra"], "lightcurves": ["photometry"], "both": ["spectra", "photometry"]}
                     input_modalities = alt_modalities_dict[input_modalities]
                     out_keys = alt_modalities_dict[spectra_or_lightcurves]
-                    print(f"Input modalities: {input_modalities}")
-                    print(f"Output modalities: {out_keys}")
                     
                     reconstructed = model.reconstruct(batch, condition_keys=input_modalities, out_keys=out_keys)
-                    print(f"reconstructed: {reconstructed}")
                 
                 # Handle different return types from the model
                 if use_uncertainty:
                     if not isinstance(reconstructed, tuple):
                         raise ValueError(f"Unexpected model output type: {type(reconstructed)}")
                     pred_flux, pred_flux_uncertainty = reconstructed
-                    print(f"pred_flux: {pred_flux}")
-                    print(f"pred_flux_uncertainty: {pred_flux_uncertainty}")
                     pred_flux = pred_flux['flux']
                 elif isinstance(reconstructed, dict) and 'flux' in reconstructed:
                     # Model returns a dictionary with 'flux' key

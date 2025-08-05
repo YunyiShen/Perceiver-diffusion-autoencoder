@@ -38,9 +38,9 @@
     "testing": {
         "use_checkpoint_path": false,
         "checkpoint_path": "/home/altair/Documents/UROP/2025_Summer/vastclammm/models/spectra_daep/galah_20k/ckpt/GALAHspectra_daep_4-4-4-8-256_concatTrue_crossattnonlyFalse_lr0.00025_epoch120_batch16_world4_reg0.0_aug1.pth",
-        "num_spectra": 5,
+        "num_spectra": 3,
         "num_samples": 1,
-        "num_examples": 5,
+        "num_examples": 3,
         "save_results": true,
         "batch_size": 8
     }

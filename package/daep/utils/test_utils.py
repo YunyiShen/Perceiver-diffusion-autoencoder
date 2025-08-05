@@ -241,19 +241,41 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
     
     Parameters
     ----------
-    predictions : np.ndarray
-        Model predictions
-    ground_truth : np.ndarray
-        Ground truth values
-    ground_truth_uncertainties : np.ndarray
-        Ground truth uncertainties
-    uncertainties : np.ndarray
-        Prediction uncertainties
+    results : dict
+        Dictionary containing:
+        - predictions : np.ndarray
+            Model predictions
+        - ground_truth : np.ndarray
+            Ground truth values
+        - ground_truth_uncertainties : np.ndarray
+            Ground truth measurement uncertainties
+        - uncertainties : np.ndarray
+            Model prediction uncertainties
+    input_modalities : list, optional
+        List of input modalities for multimodal models
+    output_modalities : list, optional
+        List of output modalities for multimodal models
         
     Returns
     -------
     dict
-        Dictionary containing various metrics with native Python types
+        Dictionary containing various metrics with native Python types:
+        - mse: Mean squared error
+        - mae: Mean absolute error
+        - rmse: Root mean squared error
+        - mean_relative_error: Mean relative error
+        - coverage_68: Fraction of predictions where ground truth falls within ±1σ (68% CI)
+        - coverage_95: Fraction of predictions where ground truth falls within ±1.96σ (95% CI)
+        - coverage_68_gt: Fraction where prediction error ≤ ground truth uncertainty
+        - coverage_95_gt: Fraction where prediction error ≤ 1.96 × ground truth uncertainty
+        - mean_uncertainty_width: Mean width of prediction uncertainty intervals
+        - uncertainty_error_correlation: Correlation between prediction uncertainties and errors
+        
+    Notes
+    -----
+    The coverage metrics assess uncertainty calibration:
+    - coverage_68/95: Check if model uncertainties are well-calibrated (should be close to 0.68/0.95)
+    - coverage_68_gt/95_gt: Assess if prediction errors are comparable to ground truth uncertainties
     """
     
     def primary(results):
@@ -261,6 +283,15 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
         ground_truth = results['ground_truth']
         ground_truth_uncertainties = results['ground_truth_uncertainties']
         uncertainties = results['uncertainties']
+        
+        # Mask outliers where the absolute z-score is greater than 10 (i.e., > 10 sigma)
+        z_scores = (predictions - ground_truth) / (uncertainties + 1e-8)
+        mask = np.abs(z_scores) <= 10.0
+        # Apply the mask to all relevant arrays to exclude outliers from metric calculations
+        predictions = predictions[mask]
+        ground_truth = ground_truth[mask]
+        ground_truth_uncertainties = ground_truth_uncertainties[mask]
+        uncertainties = uncertainties[mask]
         
         # Calculate basic error metrics
         mse = float(np.nanmean((predictions - ground_truth) ** 2))
@@ -273,15 +304,23 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
         
         # Calculate uncertainty calibration metrics
         # Check if uncertainties are well-calibrated (coverage)
+        # For 68% confidence interval: check if ground truth falls within ±1σ of predictions
+        # For 95% confidence interval: check if ground truth falls within ±1.96σ of predictions
         z_scores = (predictions - ground_truth) / (uncertainties + 1e-8)
         coverage_68 = float(np.nanmean(np.abs(z_scores) <= 1.0))  # 68% confidence interval
         coverage_95 = float(np.nanmean(np.abs(z_scores) <= 1.96))  # 95% confidence interval
-        z_scores_gt = (ground_truth - ground_truth_uncertainties) / (ground_truth_uncertainties + 1e-8)
-        coverage_68_gt = float(np.nanmean(np.abs(z_scores_gt) <= 1.0))  # 68% confidence interval
-        coverage_95_gt = float(np.nanmean(np.abs(z_scores_gt) <= 1.96))  # 95% confidence interval
+        
+        # Calculate ground truth uncertainty quality metrics
+        # This assesses the relationship between ground truth uncertainties and prediction errors
+        # A well-calibrated model should have prediction errors comparable to ground truth uncertainties
+        prediction_errors = np.abs(predictions - ground_truth)
+        uncertainty_ratio = prediction_errors / (ground_truth_uncertainties + 1e-8)
+        coverage_68_gt = float(np.nanmean(uncertainty_ratio <= 1.0))  # Fraction where prediction error ≤ ground truth uncertainty
+        coverage_95_gt = float(np.nanmean(uncertainty_ratio <= 1.96))  # Fraction where prediction error ≤ 1.96 × ground truth uncertainty
         
         # Calculate mean uncertainty width
         mean_uncertainty_width = float(np.nanmean(uncertainties))
+        mean_uncertainty_width_gt = float(np.nanmean(ground_truth_uncertainties))
         
         # Calculate correlation between uncertainty and error
         errors = np.abs(predictions - ground_truth)
@@ -297,6 +336,7 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
             'coverage_68_gt': coverage_68_gt,
             'coverage_95_gt': coverage_95_gt,
             'mean_uncertainty_width': mean_uncertainty_width,
+            'mean_uncertainty_width_gt': mean_uncertainty_width_gt,
             'uncertainty_error_correlation': uncertainty_error_correlation
         }
     
@@ -667,11 +707,16 @@ def plot_metrics_summary(metrics: Dict[str, float], save_dir: str = 'test_result
         coverage_gt_values = [metrics[m] for m in coverage_gt_metrics]
         expected_coverage = [0.68, 0.95]
         x = np.arange(len(coverage_metrics))
-        width = 0.35*2/3
         
-        axes[0, 1].bar(x - width/3, coverage_values, width, label='Actual', color='lightcoral')
-        axes[0, 1].bar(x, coverage_gt_values, width, label='Ground Truth', color='lightblue')
-        axes[0, 1].bar(x + width/3, expected_coverage, width, label='Expected', color='lightgreen')
+        total_width = 0.7  # Total width allotted for all bars at each x-tick
+        n_bars = 3
+        bar_width = total_width / n_bars
+        offsets = np.linspace(-total_width/2 + bar_width/2, total_width/2 - bar_width/2, n_bars)
+
+        axes[0, 1].bar(x + offsets[0], coverage_values, bar_width, label='Actual', color='lightcoral')
+        axes[0, 1].bar(x + offsets[1], coverage_gt_values, bar_width, label='Ground Truth', color='skyblue')
+        axes[0, 1].bar(x + offsets[2], expected_coverage, bar_width, label='Expected', color='lightgreen')
+        # Added comment: Adjusted bar positions and widths for clearer grouped bar visualization.
         axes[0, 1].set_title('Uncertainty Coverage')
         axes[0, 1].set_ylabel('Coverage')
         axes[0, 1].set_xticks(x)
@@ -679,12 +724,14 @@ def plot_metrics_summary(metrics: Dict[str, float], save_dir: str = 'test_result
         axes[0, 1].legend()
         
         # Plot 3: Uncertainty width
-        axes[1, 0].bar(['Mean Uncertainty Width'], [metrics['mean_uncertainty_width']], color='gold')
+        axes[1, 0].bar(0, [metrics['mean_uncertainty_width']], 0.5, label='Actual', color='lightcoral')
+        axes[1, 0].bar(1, [metrics['mean_uncertainty_width_gt']], 0.5, label='Ground Truth', color='skyblue')
         axes[1, 0].set_title('Mean Uncertainty Width')
         axes[1, 0].set_ylabel('Value')
+        axes[1, 0].legend()
         
         # Plot 4: Correlation
-        axes[1, 1].bar(['Uncertainty-Error\nCorrelation'], [metrics['uncertainty_error_correlation']], color='lightblue')
+        axes[1, 1].bar(['Uncertainty-Error\nCorrelation'], [metrics['uncertainty_error_correlation']], color='gold')
         axes[1, 1].set_title('Uncertainty-Error Correlation')
         axes[1, 1].set_ylabel('Correlation')
         axes[1, 1].set_ylim(-1, 1)

@@ -55,4 +55,5 @@ echo "PANDAS_NUM_THREADS: $PANDAS_NUM_THREADS"
 echo "CPUINFO_ARCH_NAME: $CPUINFO_ARCH_NAME"
 
 # Run the dataset creation script
-python training/GALAHspectra_train.py 
+cd training
+python GALAHspectra_train.py 

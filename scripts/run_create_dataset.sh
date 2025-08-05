@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH -J create_dataset_tess_20k
-#SBATCH -o create_dataset_tess_20k_%j.out
-#SBATCH -e create_dataset_tess_20k_%j.err
+#SBATCH -J create_dataset_tess_20k_galah_20k
+#SBATCH -o create_dataset_tess_20k_galah_20k_%j.out
+#SBATCH -e create_dataset_tess_20k_galah_20k_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=0
@@ -43,4 +43,7 @@ echo "OMP_NUM_THREADS: $OMP_NUM_THREADS"
 echo "PANDAS_NUM_THREADS: $PANDAS_NUM_THREADS"
 
 # Run the dataset creation script
-python ../scripts/daep/datasets/TESSlightcurve_dataset.py --test_name tess_20k
+cd ..
+cd package/daep/datasets
+python TESSlightcurve_dataset.py --test_name tess_20k
+python GALAHspectra_dataset.py --test_name galah_20k
