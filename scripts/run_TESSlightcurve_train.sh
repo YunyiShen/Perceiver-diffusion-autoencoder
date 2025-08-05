@@ -56,4 +56,4 @@ echo "CPUINFO_ARCH_NAME: $CPUINFO_ARCH_NAME"
 
 # Run the dataset creation script
 cd training
-python TESSlightcurve_train.py --config_path config_train_tess.json 
+python TESSlightcurve_train.py --config_path configs/config_train_tess.json 

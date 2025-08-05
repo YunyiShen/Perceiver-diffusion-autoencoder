@@ -272,3 +272,203 @@ class multimodaldaep(nn.Module):
             return res, uncertainties
         else:
             return res
+
+
+
+
+class unimodaldaepclassifier(nn.Module):
+    """
+    Unimodal DAE classifier that uses an encoder and classifier for classification tasks.
+    
+    This class replaces the diffusion-based reconstruction with a classification head
+    for predicting class labels from encoded representations.
+    
+    Parameters
+    ----------
+    encoder : nn.Module
+        The encoder network that processes input data into latent representations
+    classifier : nn.Module
+        The classifier network that predicts class labels from latent representations
+    MMD : callable, optional
+        Maximum Mean Discrepancy function for regularization
+    name : str, default="flux"
+        Name identifier for the modality
+    prior : torch.distributions.Distribution, optional
+        Prior distribution for MMD regularization
+    regularize : float, default=0.0001
+        Regularization weight for MMD loss
+    num_classes : int, optional
+        Number of classes for classification (if classifier doesn't specify output dim)
+    """
+    def __init__(self, encoder, classifier, MMD = None, name = "flux",
+                prior = dist.Laplace, regularize = 0.0001, 
+                num_classes = None):
+        super().__init__()
+        self.encoder = encoder
+        self.classifier = classifier
+        self.MMD = MMD
+        self.latent_len = encoder.bottleneck_length
+        self.latent_dim = encoder.bottleneck_dim
+        self.regularize = regularize
+        self.name = name
+        
+        # Set up MMD regularization if provided
+        if MMD is not None and prior is not None:
+            self.prior = prior
+            self.prior_params = nn.ParameterList([
+                nn.Parameter(torch.zeros(self.latent_len, self.latent_dim), requires_grad=False),  # mu
+                nn.Parameter(torch.ones(self.latent_len, self.latent_dim), requires_grad=True)  # logvar
+            ])
+    
+    def forward(self, x, targets=None):
+        """
+        Forward pass through encoder and classifier.
+        
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input data tensor
+        targets : torch.Tensor, optional
+            Target class labels for loss computation
+            
+        Returns
+        -------
+        torch.Tensor or tuple
+            If targets provided: (classification_loss, mmd_loss, total_loss)
+            If no targets: class predictions
+        """
+        z = self.encoder(x)
+        class_output = self.classifier(z)
+        
+        # Compute MMD regularization loss if enabled
+        if self.MMD is not None and hasattr(self, 'prior'):
+            qz_x = self.prior(*self.prior_params).rsample([z.shape[0]]).to(z.device)
+            mmd_loss = self.regularize * self.MMD(z.reshape(z.shape[0], -1), qz_x.reshape(z.shape[0], -1))
+        else:
+            mmd_loss = 0.0
+        
+        # If targets are provided, compute classification loss
+        if targets is not None:
+            # Handle different output formats (logits vs probabilities)
+            if class_output.shape[-1] == 1:  # Binary classification
+                classification_loss = F.binary_cross_entropy_with_logits(class_output.squeeze(), targets.float())
+            else:  # Multi-class classification
+                classification_loss = F.cross_entropy(class_output, targets)
+            
+            total_loss = classification_loss + mmd_loss
+            return classification_loss, mmd_loss, total_loss
+        else:
+            # Return predictions (apply softmax for multi-class, sigmoid for binary)
+            if class_output.shape[-1] == 1:  # Binary classification
+                return torch.sigmoid(class_output.squeeze())
+            else:  # Multi-class classification
+                return F.softmax(class_output, dim=-1)
+    
+    def predict(self, x):
+        """
+        Returns predicted class probabilities
+        """
+        self.eval()
+        with torch.no_grad():
+            return self.forward(x)
+
+
+class multimodaldaepclassifier(nn.Module):
+    """
+    Multimodal DAE classifier that combines multiple modalities for classification.
+    
+    This class uses multiple tokenizers and a shared encoder to process multimodal
+    data and perform classification tasks.
+    
+    Parameters
+    ----------
+    tokenizers : dict
+        Dictionary mapping modality keys to tokenizer networks
+    encoder : nn.Module
+        Shared encoder network that processes concatenated tokens
+    classifier : nn.Module
+        Classifier network that predicts class labels from encoded representations
+    measurement_names : dict
+        Dictionary mapping modality keys to measurement names
+    modality_dropping_during_training : callable, optional
+        Function that determines which modalities to use during training
+    num_classes : int, optional
+        Number of classes for classification
+    """
+    def __init__(self, tokenizers, encoder, classifier, measurement_names, 
+                 modality_dropping_during_training = lambda x: x,
+                 num_classes = None):
+        super().__init__()
+        assert set(tokenizers.keys()) == set(measurement_names.keys()), "modality keys have to match"
+        self.modalities = [*tokenizers.keys()]
+        modeldims = [tokenizer.model_dim for tokenizer in tokenizers.values()] + [encoder.model_dim]
+        assert min(modeldims) == max(modeldims), "model_dims have to match for this implementation"
+        
+        self.tokenizers = nn.ModuleDict(tokenizers)
+        self.encoder = encoder
+        self.classifier = classifier
+        self.names = measurement_names
+        self.modality_dropping_during_training = modality_dropping_during_training
+        
+        self.model_dim = min(modeldims)
+        self.latent_len = encoder.bottleneck_length
+        self.latent_dim = encoder.bottleneck_dim
+        
+        # Modality embeddings to distinguish between different input modalities
+        self.modalityEmbedding = nn.ParameterDict({
+            key: nn.Parameter(torch.randn(1, 1, self.model_dim) * 0.02) 
+            for key in tokenizers.keys()
+        })
+    
+    def encode(self, x, keys = None):
+        """
+        Encode multimodal input data into latent representations.
+        """
+        keys = keys if keys is not None else x.keys()
+        tokens = [self.tokenizers[key](x[key]) + self.modalityEmbedding[key] for key in keys]
+        return self.encoder(torch.concat(tokens, axis=1))
+    
+    def forward(self, x, targets=None):
+        """
+        Forward pass through tokenizers, encoder, and classifier.
+        
+        Parameters
+        ----------
+        x : dict
+            Dictionary with modality keys containing input data
+        targets : torch.Tensor, optional
+            Target class labels for loss computation
+            
+        Returns
+        -------
+        torch.Tensor or tuple
+            If targets provided: (classification_loss, total_loss)
+            If no targets: class predictions
+        """
+        # Apply modality dropping during training
+        used_keys = self.modality_dropping_during_training(x.keys())
+        z = self.encode(x, keys=used_keys)
+        class_output = self.classifier(z)
+        
+        # If targets are provided, compute classification loss
+        if targets is not None:
+            # Use cross_entropy for both binary and multi-class classification.
+            classification_loss = F.cross_entropy(class_output, targets)
+            
+            return classification_loss, classification_loss
+        else:
+            # Return predictions (apply softmax)
+            return F.softmax(class_output, dim=-1)
+    
+    def predict(self, x, condition_keys=None):
+        """
+        Returns predicted class probabilities
+        """
+        self.eval()
+        with torch.no_grad():
+            if condition_keys is None:
+                condition_keys = x.keys()
+            return self.forward({k: x[k] for k in condition_keys})
+
+
+

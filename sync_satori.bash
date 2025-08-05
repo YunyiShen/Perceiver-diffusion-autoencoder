@@ -15,4 +15,9 @@ rsync -r -av --progress allisone@satori-login-001.mit.edu:/home/allisone/UROP_20
 rsync -r -av --progress allisone@satori-login-002.mit.edu:/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models .
 rsync -r -av --progress allisone@satori-login-002.mit.edu:/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data .
 
+rsync -r -av --progress allisone@satori-login-002.mit.edu:/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/spectra data
+rsync -r -av --progress allisone@satori-login-002.mit.edu:/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/lightcurves data
+
+
+
 

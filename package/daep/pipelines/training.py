@@ -219,6 +219,91 @@ def initialize_model(device, model_mode, config):
         
     return mydaep
 
+def create_dataloader(config, model_mode, rank, world_size):
+    """
+    Create dataset and dataloader based on configuration and model mode.
+    
+    Parameters
+    ----------
+    config : Dict[str, Any]
+        Configuration dictionary containing data parameters
+    model_mode : str
+        Mode of the model: "spectra", "lightcurves", "both", or "both_from_pretrained"
+    rank : int
+        Rank of the current process for distributed training
+    world_size : int
+        Total number of processes for distributed training
+        
+    Returns
+    -------
+    tuple
+        (training_loader, data_name, sampler)
+    """
+    if model_mode == "spectra":
+        data_name = 'GALAHspectra'
+        data_path = Path(config["data"]["data_path"]) / 'spectra'
+        test_name = config["data"]["test_name"]
+        from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
+        training_data = GALAHDatasetProcessed(
+            data_dir=data_path / test_name, 
+            train=True, 
+            use_uncertainty=config["model"].get("use_uncertainty", False)
+        )
+        collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=False)
+        
+    elif model_mode == "lightcurves":
+        data_name = 'TESSlightcurve'
+        data_path = Path(config["data"]["data_path"]) / 'lightcurves'
+        test_name = config["data"]["test_name"]
+        from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
+        training_data = TESSDatasetProcessed(
+            data_dir=data_path / test_name, 
+            train=True, 
+            use_uncertainty=config["model"].get("use_uncertainty", False)
+        )
+        collate_fn = padding_collate_fun(supply=['flux', 'time'], mask_by="flux", multimodal=False)
+        
+    elif model_mode in ["both", "both_from_pretrained", "both_from_pretrained_encoders", "both_from_pretrained"]:
+        data_name = 'TESSGALAHspeclc'
+        data_path = Path(config["data"]["data_path"])
+        lightcurve_test_name = config["data"]["lightcurve_test_name"]
+        spectra_test_name = config["data"]["spectra_test_name"]
+        from daep.datasets.TESSGALAHspeclc_dataset import TESSGALAHDatasetProcessed
+        from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
+        from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
+        dataset_lc = TESSDatasetProcessed(
+            data_dir=data_path / 'lightcurves' / lightcurve_test_name, 
+            train=True, 
+            use_uncertainty=config["model"].get("use_uncertainty", False)
+        )
+        dataset_spectra = GALAHDatasetProcessed(
+            data_dir=data_path / 'spectra' / spectra_test_name, 
+            train=True, 
+            use_uncertainty=config["model"].get("use_uncertainty", False)
+        )
+        training_data = TESSGALAHDatasetProcessed(
+            dataset_lc, 
+            dataset_spectra, 
+            use_uncertainty=config["model"].get("use_uncertainty", False)
+        )
+        collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=True)
+    
+    else:
+        raise ValueError(f"Unsupported model_mode: {model_mode}")
+        
+    # Dataset and loader with distributed sampler
+    sampler = DistributedSampler(training_data, num_replicas=world_size, rank=rank, shuffle=True)
+    training_loader = DataLoader(
+        training_data, 
+        batch_size=config["training"]["batch"], 
+        sampler=sampler,
+        collate_fn=collate_fn,
+        num_workers=config["data_processing"]["num_workers"], 
+        pin_memory=config["data_processing"]["pin_memory"]
+    )
+    
+    return training_loader, data_name, sampler
+
 def train_worker(rank, world_size, config, spectra_or_lightcurves):
     """
     Worker function for distributed training.
@@ -242,45 +327,20 @@ def train_worker(rank, world_size, config, spectra_or_lightcurves):
     else:
         print("No checkpoint specified, starting training from scratch")
     
-    # Extract paths from config
+    # Create dataloader using the shared function
+    training_loader, data_name, sampler = create_dataloader(config, spectra_or_lightcurves, rank, world_size)
+    
+    # Extract paths and create directories based on model mode
     test_name = config["data"]["test_name"]
     if spectra_or_lightcurves == "spectra":
-        data_name = 'GALAHspectra'
-        data_path = Path(config["data"]["data_path"]) / 'spectra'
         models_path = Path(config["data"]["models_path"]) / 'spectra'
-        models_path.mkdir(parents=True, exist_ok=True)
-        from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
-        training_data = GALAHDatasetProcessed(data_dir=data_path / test_name, train=True, use_uncertainty=config["model"]["use_uncertainty"])
-        collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=False)
     elif spectra_or_lightcurves == "lightcurves":
-        data_name = 'TESSlightcurve'
-        data_path = Path(config["data"]["data_path"]) / 'lightcurves'
         models_path = Path(config["data"]["models_path"]) / 'lightcurves'
-        models_path.mkdir(parents=True, exist_ok=True)
-        from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
-        training_data = TESSDatasetProcessed(data_dir=data_path / test_name, train=True, use_uncertainty=config["model"]["use_uncertainty"])
-        collate_fn = padding_collate_fun(supply=['flux', 'time'], mask_by="flux", multimodal=False)
-    elif spectra_or_lightcurves == "both":
-        data_name = 'TESSGALAHspeclc'
-        data_path = Path(config["data"]["data_path"])
+    elif spectra_or_lightcurves in ["both", "both_from_pretrained", "both_from_pretrained_encoders", "both_from_pretrained"]:
         models_path = Path(config["data"]["models_path"]) / 'speclc'
-        models_path.mkdir(parents=True, exist_ok=True)
-        from daep.datasets.TESSGALAHspeclc_dataset import TESSGALAHDatasetProcessed
-        from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
-        from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
-        lightcurve_test_name = config["data"]["lightcurve_test_name"]
-        spectra_test_name = config["data"]["spectra_test_name"]
-        dataset_lc = TESSDatasetProcessed(data_dir=data_path / 'lightcurves' / lightcurve_test_name, train=True, use_uncertainty=config["model"]["use_uncertainty"])
-        dataset_spectra = GALAHDatasetProcessed(data_dir=data_path / 'spectra' / spectra_test_name, train=True, use_uncertainty=config["model"]["use_uncertainty"])
-        training_data = TESSGALAHDatasetProcessed(dataset_lc, dataset_spectra, use_uncertainty=config["model"]["use_uncertainty"])
-        collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=True)
-        
-    # Dataset and loader with distributed sampler
-    sampler = DistributedSampler(training_data, num_replicas=world_size, rank=rank, shuffle=True)
-    training_loader = DataLoader(training_data, batch_size=config["training"]["batch"], sampler=sampler,
-                                collate_fn=collate_fn,
-                                num_workers=config["data_processing"]["num_workers"], 
-                                pin_memory=config["data_processing"]["pin_memory"])
+    
+    # Create models directory
+    models_path.mkdir(parents=True, exist_ok=True)
     
     device = torch.device(f"cuda:{rank}")
     

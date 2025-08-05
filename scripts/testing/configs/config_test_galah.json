@@ -5,7 +5,7 @@
         "models_path_local": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models",
         "data_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data",
         "models_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models",
-        "test_name": "galah_1k"
+        "test_name": "galah_20k"
     },
     "training": {
         "epoch": 300,
@@ -17,11 +17,11 @@
     "model": {
         "bottlenecklen": 4,
         "bottleneckdim": 4,
-        "model_dim": 128,
+        "model_dim": 256,
+        "encoder_layers": 4,
+        "decoder_layers": 8,
         "encoder_heads": 4,
         "decoder_heads": 4,
-        "encoder_layers": 4,
-        "decoder_layers": 4,
         "concat": true,
         "cross_attn_only": false,
         "regularize": 0.00,

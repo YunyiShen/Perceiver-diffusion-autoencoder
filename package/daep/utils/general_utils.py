@@ -46,7 +46,7 @@ def set_paths(env: str, spectra_or_lightcurve: str) -> Tuple[str, str, str, str]
         base_path = "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder"
         model_path = base_path + f"/models/{spectra_or_lightcurve}"
         data_path = base_path + f"/data/{spectra_or_lightcurve}"
-        raw_data_path = base_path + f"/data/{spectra_or_lightcurve}_raw"
+        raw_data_path = f"/nobackup/users/allisone/UROP_2025_Summer/vastclammm/data/{spectra_or_lightcurve}_raw" #base_path + f"/data/{spectra_or_lightcurve}_raw"
     elif env == 'local':
         base_path = "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder"
         model_path = base_path + f"/models/{spectra_or_lightcurve}"
@@ -94,6 +94,21 @@ def create_model_str(config: Dict[str, Any], data_name: str) -> str:
         base_fmt += f"modaldropP{config['model']['dropping_prob']}_"
     base_fmt += (
         f"batch{config['training']['batch']}_reg{config['model']['regularize']}_"
+        f"aug{config['training']['aug']}_date{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
+    )
+    model_str = str(base_fmt)
+    return model_str
+
+def create_model_str_classifier(config: Dict[str, Any], data_name: str) -> str:
+    base_fmt = (
+        f"{data_name}_{config['model']['bottleneckdim']}-"
+    )
+    if 'classifier_dropout' in config['model']:
+        base_fmt += f"classifierdropP{config['model']['classifier_dropout']}_"
+    if 'dropping_prob' in config['model']:
+        base_fmt += f"modaldropP{config['model']['dropping_prob']}_"
+    base_fmt += (
+        f"lr{config['training']['lr']}_batch{config['training']['batch']}_reg{config['model']['regularize']}_"
         f"aug{config['training']['aug']}_date{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
     )
     model_str = str(base_fmt)

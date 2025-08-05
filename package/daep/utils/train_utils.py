@@ -190,7 +190,7 @@ def loss_plot(epoches, epoch_loss, start_epoch, config, save_path):
     if start_epoch > 0 and start_epoch < len(epoch_loss):
         plt.axvline(x=start_epoch, color='g', linestyle='--', label=f'Checkpoint Epoch ({start_epoch})')
         plt.legend()
-    plt.title(f'Loss Plot for {config["data"]["test_name"]}-{config["model"]["bottlenecklen"]}-{config["model"]["bottleneckdim"]}-{config["model"]["encoder_layers"]}-{config["model"]["decoder_layers"]}-{config["model"]["model_dim"]}')
+    plt.title(f'Loss Plot for {config["data"]["test_name"]}')
     plt.savefig(save_path)
     plt.close()
 

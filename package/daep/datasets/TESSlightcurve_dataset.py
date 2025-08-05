@@ -39,6 +39,8 @@ class TESSDataset(Dataset):
             self._load_legacy_data()
         else:            
             raise FileNotFoundError(f"Extracted data not found at {data_dir} -- set extract=True to extract data")
+        
+        self._convert_starclass_to_one_hot()
     
     def __len__(self):
         return len(self.fluxes)
@@ -70,7 +72,37 @@ class TESSDataset(Dataset):
         self.ids = np.load(self.ids_path, allow_pickle=True)
         self.catalog = pd.read_csv(self.catalog_path)
         self.catalog = convert_to_native_byte_order(self.catalog)
+    
+    def _convert_starclass_to_one_hot(self):
+        """
+        Convert the first column of self.labels (starclass integer) to a one-hot encoded array.
+
+        Returns
+        -------
+        np.ndarray
+            One-hot encoded array of shape (num_samples, num_starclasses).
+        """
+        # Define the mapping from starclass names to integers
+        self.starclass_name_to_int = {'INSTRUMENT': 0, 'APERIODIC': 1, 'CONSTANT': 2, 'CONTACT_ROT': 3,
+                                     'DSCT_BCEP': 4, 'ECLIPSE': 5, 'GDOR_SPB': 6, 'RRLYR_CEPHEID': 7,
+                                     'SOLARLIKE': 8}
+        self.starclass_int_to_name = {v: k for k, v in self.starclass_name_to_int.items()}
+        self.num_starclasses = len(self.starclass_name_to_int)
         
+        # Extract starclass integer labels from the first column of self.labels
+        starclass_names = self.labels[:, 0].astype(str)
+        starclass_ints = np.array([self.starclass_name_to_int[name] for name in starclass_names])
+
+        # Create one-hot encoded array
+        one_hot = np.zeros((starclass_ints.shape[0], self.num_starclasses), dtype=np.int64)
+        one_hot[np.arange(starclass_ints.shape[0]), starclass_ints] = 1.0
+
+        # Store as self.starclass for easy access
+        self.starclass = one_hot
+
+        # Comment: Added one-hot encoding of starclass labels for use in classification tasks.
+        return one_hot
+    
     def extract_data(self, raw_data_dir, tess_xmatch_catalog_path, targets_path=None):
         """"
         Extract data from the raw data directory and save it to the data directory.
@@ -117,7 +149,6 @@ class TESSDataset(Dataset):
         full_catalog['survey_name'] = np.full(len(full_catalog), 'TESS')
         full_catalog['date_obs_jd'] = np.full(len(full_catalog), None)
         
-        full_catalog['starclass'] = np.full(len(full_catalog), None)
         full_catalog['TEFF'] = np.full(len(full_catalog), np.nan)
         full_catalog['LOGG'] = np.full(len(full_catalog), np.nan)
 
@@ -293,7 +324,8 @@ class TESSDatasetProcessed(TESSDataset):
             print(f"All NaN lightcurve at index {idx}")
         
         res = {"flux": self.fluxes_normalized[idx],
-               "time": self.times_normalized[idx], 
+               "time": self.times_normalized[idx],
+               'starclass': torch.tensor(self.starclass[idx]),
             #    "mask": ~torch.isnan(self.fluxes_normalized[idx]),   # THIS BREAKS THE TRAINING -> loss NaN on epoch 1
                "idx": torch.tensor(idx)}
         

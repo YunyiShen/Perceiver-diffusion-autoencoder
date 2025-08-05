@@ -51,6 +51,11 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
         (test_dataset, test_loader)
     """
     print("Loading test dataset...")
+    if 'use_uncertainty' in config["model"]:
+        use_uncertainty = config["model"]["use_uncertainty"]
+    else:
+        use_uncertainty = False
+    
     if spectra_or_lightcurves == "spectra":
         
         test_data = GALAHDatasetProcessedSubset(
@@ -58,7 +63,7 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
             data_dir=data_path / 'spectra' / test_name, 
             train=False, 
             extract=False,
-            use_uncertainty=config["model"]["use_uncertainty"]
+            use_uncertainty=use_uncertainty
         )
         collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=False)
     elif spectra_or_lightcurves == "lightcurves":
@@ -67,7 +72,7 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
             data_dir=data_path / 'lightcurves' / test_name, 
             train=False, 
             extract=False,
-            use_uncertainty=config["model"]["use_uncertainty"]
+            use_uncertainty=use_uncertainty
         )
         collate_fn = padding_collate_fun(supply=['flux', 'time'], mask_by="flux", multimodal=False)
     elif spectra_or_lightcurves == "both":
@@ -77,7 +82,7 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
             data_dir=data_path / 'spectra' / config["data"]["spectra_test_name"], 
             train=False, 
             extract=False,
-            use_uncertainty=config["model"]["use_uncertainty"]
+            use_uncertainty=use_uncertainty
         )
         lightcurve_data = TESSDatasetProcessed(
             data_dir=data_path / 'lightcurves' / config["data"]["lightcurve_test_name"], 
@@ -89,7 +94,7 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
             num_samples=config["testing"]["num_test_instances"],
             lightcurve_dataset=lightcurve_data,
             spectra_dataset=spectra_data,
-            use_uncertainty=config["model"]["use_uncertainty"]
+            use_uncertainty=use_uncertainty
         )
         collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=True)
     

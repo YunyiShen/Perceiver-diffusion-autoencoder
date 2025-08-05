@@ -1,35 +1,48 @@
 {
-    "env": "local",
+    "env": "remote",
     "data": {
         "data_path_local": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/data",
         "models_path_local": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models",
         "data_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data",
         "models_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models",
-        "test_name": "galah_1k"
+        "test_name": "galah_20k",
+        "lightcurve_test_name": "tess_20k",
+        "spectra_test_name": "galah_20k"
     },
     "training": {
-        "epoch": 20,
-        "lr": 2.5e-4,
-        "batch": 4,
-        "save_every": 5,
+        "epoch": 100,
+        "lr": 1e-3,
+        "batch": 32,
+        "save_every": 10,
         "aug": 1
     },
     "model": {
         "bottlenecklen": 4,
         "bottleneckdim": 4,
-        "model_dim": 128,
-        "encoder_layers": 4,
-        "decoder_layers": 4,
+        "model_dim": 256,
         "encoder_heads": 4,
-        "decoder_heads": 4,
+        "encoder_layers": 4,
         "concat": true,
-        "cross_attn_only": false,
-        "regularize": 0.00,
-        "use_uncertainty": true
+        "fourier_embed": false,
+        "mixer_selfattn": true,
+        "spectra_tokens": 4,
+        "photometry_tokens": 4,
+        "dropping_prob": 0.2,
+        "regularize": 0.0,
+        
+        "classifier_heads": 4,
+        "classifier_layers": 2,
+        "classifier_dropout": 0.1,
+        "classifier_ffn_dim": 128,
+        "num_classes": 10,
+        
+        "pretrained_encoder_path": "/path/to/pretrained/encoder.pth",
+        "pretrained_spectra_tokenizer_path": "/path/to/pretrained/spectra_tokenizer.pth",
+        "pretrained_photometry_tokenizer_path": "/path/to/pretrained/photometry_tokenizer.pth"
     },
     "checkpoint": {
         "load_checkpoint": false,
-        "checkpoint_path": "/home/altair/Documents/UROP/2025_Summer/vastclammm/models/spectra_daep/galah_1k/ckpt/GALAHspectra_daep_4-4-4-4-128_concatTrue_crossattnonlyFalse_lr0.00025_epoch30_batch4_world1_reg0.0_aug1_date2025-07-30_18-42.pth"
+        "checkpoint_path": "/path/to/classifier/checkpoint.pth"
     },
     "distributed": {
         "init_method": "tcp://127.0.0.1:23456",
@@ -41,9 +54,9 @@
     },
     "testing": {
         "num_spectra": 5,
-        "num_samples": 100,
+        "num_samples": 1,
         "num_examples": 3,
         "save_results": true,
         "batch_size": 8
     }
-}
+} 
