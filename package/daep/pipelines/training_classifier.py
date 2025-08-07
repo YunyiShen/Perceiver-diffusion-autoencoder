@@ -24,7 +24,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 
 from daep.utils.train_utils import setup_ddp, cleanup_ddp, load_checkpoint, loss_plot, load_and_update_config
-from daep.utils.general_utils import detect_env, create_model_str_classifier
+from daep.utils.general_utils import detect_env, create_model_str_classifier, create_model_str
 from daep.pipelines.training import create_dataloader
 
 ENV = detect_env()
@@ -47,25 +47,12 @@ def load_pretrained_model(model_path: str, device: torch.device):
     """
     print(f"Loading pretrained model from: {model_path}")
     
-    if model_path.endswith('.pth'):
-        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-        
-        # Handle different checkpoint formats
-        if isinstance(checkpoint, dict):
-            if 'model' in checkpoint:
-                model = checkpoint['model']
-            elif 'state_dict' in checkpoint:
-                # This would need to be handled based on the specific model architecture
-                raise NotImplementedError("state_dict loading not implemented yet")
-            else:
-                model = checkpoint
-        else:
-            model = checkpoint
-            
-    else:
-        raise ValueError(f"Unsupported model file format: {model_path}")
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     
-    return model
+    model = checkpoint['model']
+    config = checkpoint['config']
+        
+    return model, config
 
 def freeze_model_parameters(model: nn.Module):
     """
@@ -99,27 +86,48 @@ def initialize_classifier_model(device, spectra_or_lightcurves, config):
     torch.nn.Module
         Initialized classifier model with frozen encoder/tokenizers.
     """
+    if config["model"]["use_pretrained_encoder"]:
+        pretrained_model, pretrained_config = load_pretrained_model(
+                config["model"]["pretrained_encoder_path"], 
+                device
+            )
+        config["pretrained_encoder_config"] = pretrained_config
+        bottleneck_dim = pretrained_config["model"]["bottleneckdim"]
+        bottleneck_len = pretrained_config["model"]["bottlenecklen"]
+    else:
+        bottleneck_dim = config["model_new_encoder"]["bottleneckdim"]
+        bottleneck_len = config["model_new_encoder"]["bottlenecklen"]
+    
     # Build classifier
     classifier = LCC(
-        bottleneck_dim=config["model"]["bottleneckdim"],
-        bottleneck_len=config["model"]["bottlenecklen"],
+        bottleneck_dim=bottleneck_dim,
+        bottleneck_len=bottleneck_len,
         dropout_p=config["model"]["classifier_dropout"],
         num_classes=config["model"]["num_classes"]
     )
     
-    model = load_pretrained_model(
-            config["model"]["pretrained_encoder_path"], 
-            device
-        )
-    
     # Initialize model based on mode
     if spectra_or_lightcurves in ["spectra", "lightcurves"]:
-        # Load and freeze encoder
-        if hasattr(model, 'encoder'):
-            encoder = model.encoder
+        if config["model"]["use_pretrained_encoder"]:
+            # Load and freeze encoder
+            encoder = pretrained_model.encoder
+            if config["model"]["freeze_pretrained_encoder"]:
+                freeze_model_parameters(encoder)
+            
         else:
-            encoder = model
-        freeze_model_parameters(model)
+            from daep.PhotometricLayers import photometricTransceiverEncoder
+            encoder = photometricTransceiverEncoder(
+                num_bands=1,
+                bottleneck_length=config["model_new_encoder"]["bottlenecklen"],
+                bottleneck_dim=config["model_new_encoder"]["bottleneckdim"],
+                model_dim=config["model_new_encoder"]["model_dim"],
+                num_heads=config["model_new_encoder"]["encoder_heads"],
+                ff_dim=config["model_new_encoder"]["model_dim"],
+                num_layers=config["model_new_encoder"]["encoder_layers"],
+                concat=config["model_new_encoder"]["concat"],
+                sinpos = config["model_new_encoder"]["sinpos_embed"],
+                fourier=config["model_new_encoder"]["fourier_embed"],
+            )
         
         # Create unimodal classifier
         model = unimodaldaepclassifier(
@@ -133,63 +141,65 @@ def initialize_classifier_model(device, spectra_or_lightcurves, config):
         from daep.daep import modality_drop
         from functools import partial
         
-        # Assume model is a multimodaldaep model
-        spectra_tokenizer = model.tokenizers["spectra"]
-        photometry_tokenizer = model.tokenizers["photometry"]
-        encoder = model.encoder
-        
-        freeze_model_parameters(spectra_tokenizer)
-        freeze_model_parameters(photometry_tokenizer)
-        freeze_model_parameters(encoder)
-
-        # # Load pretrained tokenizers
-        # tokenizers = {}
-        
-        # # Load spectra tokenizer
-        # spectra_model = load_pretrained_model(
-        #     config["model"]["pretrained_spectra_tokenizer_path"],
-        #     device
-        # )
-        # if hasattr(spectra_model, 'tokenizers'):
-        #     tokenizers["spectra"] = spectra_model.tokenizers["spectra"]
-        # else:
-        #     tokenizers["spectra"] = spectra_model
+        if config["model"]["use_pretrained_encoder"]:
+            # Assume model is a multimodaldaep model
+            spectra_tokenizer = pretrained_model.tokenizers["spectra"]
+            photometry_tokenizer = pretrained_model.tokenizers["photometry"]
+            encoder = pretrained_model.encoder
+            if config["model"]["freeze_pretrained_encoder"]:
+                freeze_model_parameters(spectra_tokenizer)
+                freeze_model_parameters(photometry_tokenizer)
+                freeze_model_parameters(encoder)
+        else:
+            from daep.SpectraLayers import spectraTransceiverEncoder
+            from daep.PhotometricLayers import photometricTransceiverEncoder
+            from daep.Perceiver import PerceiverEncoder
             
-        # # Load photometry tokenizer
-        # photometry_model = load_pretrained_model(
-        #     config["model"]["pretrained_photometry_tokenizer_path"], 
-        #     device
-        # )
-        # if hasattr(photometry_model, 'tokenizers'):
-        #     tokenizers["photometry"] = photometry_model.tokenizers["photometry"]
-        # else:
-        #     tokenizers["photometry"] = photometry_model
-
-        # # Freeze tokenizer parameters
-        # for modality, tokenizer in tokenizers.items():
-        #     print(f"Freezing {modality} tokenizer")
-        #     freeze_model_parameters(tokenizer)
-
-        # # Load and freeze encoder
-        # model = load_pretrained_model(
-        #     config["model"]["pretrained_encoder_path"], 
-        #     device
-        # )
-        # if hasattr(model, 'encoder'):
-        #     encoder = model.encoder
-        # else:
-        #     encoder = model
-        # freeze_model_parameters(encoder)
+            spectra_tokenizer = spectraTransceiverEncoder(
+                bottleneck_length = config["model_new_encoder"]["bottlenecklen"],
+                bottleneck_dim = config["model_new_encoder_multimodal"]["spectra_tokens"],
+                model_dim = config["model_new_encoder"]["model_dim"],
+                ff_dim = config["model_new_encoder"]["model_dim"],
+                num_layers = config["model_new_encoder"]["encoder_layers"],
+                num_heads = config["model_new_encoder"]["encoder_heads"],
+            )
+            photometry_tokenizer = photometricTransceiverEncoder(
+                num_bands = 1, 
+                bottleneck_length = config["model_new_encoder"]["bottlenecklen"],
+                bottleneck_dim = config["model_new_encoder_multimodal"]["photometry_tokens"],
+                model_dim = config["model_new_encoder"]["model_dim"], 
+                ff_dim = config["model_new_encoder"]["model_dim"],
+                num_layers = config["model_new_encoder"]["encoder_layers"],
+                num_heads = config["model_new_encoder"]["encoder_heads"],
+                sinpos = config["model_new_encoder"]["sinpos_embed"],
+                fourier=config["model_new_encoder"]["fourier_embed"],
+                output_uncertainty=config["model_new_encoder"]["use_uncertainty"]
+            )
+            
+            encoder = PerceiverEncoder(
+                bottleneck_length = config["model_new_encoder"]["bottlenecklen"],
+                bottleneck_dim = config["model_new_encoder"]["bottleneckdim"],
+                model_dim = config["model_new_encoder"]["model_dim"],
+                ff_dim = config["model_new_encoder"]["model_dim"],
+                num_layers = config["model_new_encoder"]["encoder_layers"],
+                num_heads = config["model_new_encoder"]["encoder_heads"],
+                selfattn = config["model_new_encoder"]["mixer_selfattn"]
+            )
+        
+        if config["model"]["use_pretrained_encoder"]:
+            dropping_prob = pretrained_config["model"]["dropping_prob"]
+        else:
+            dropping_prob = config["model_new_encoder_multimodal"]["dropping_prob"]
 
         model = multimodaldaepclassifier(
             tokenizers={"spectra": spectra_tokenizer, "photometry": photometry_tokenizer},
             encoder=encoder,
             classifier=classifier,
             measurement_names={"spectra": "flux", "photometry": "flux"},
-            modality_dropping_during_training=partial(modality_drop, p_drop=config["model"]["dropping_prob"])
+            modality_dropping_during_training=partial(modality_drop, p_drop=dropping_prob)
         ).to(device)
     
-    return model
+    return model, config
 
 def extract_targets_from_batch(batch, device):
     """
@@ -304,7 +314,7 @@ def train_classifier_worker(rank, world_size, config, spectra_or_lightcurves):
     device = torch.device(f"cuda:{rank}")
     
     # Initialize the model
-    model = initialize_classifier_model(device, spectra_or_lightcurves, config)
+    model, config = initialize_classifier_model(device, spectra_or_lightcurves, config)
     
     # Print # of parameters
     if rank == 0:
@@ -326,7 +336,6 @@ def train_classifier_worker(rank, world_size, config, spectra_or_lightcurves):
     loss_plot_path = None
     
     model_str = create_model_str_classifier(config, data_name)
-    model_parent_str = Path(config["model"]["pretrained_encoder_path"]).parent.parent.name
     
     # Load checkpoint if specified
     if config.get("checkpoint", {}).get("load_checkpoint", False) and rank == 0:
@@ -356,7 +365,7 @@ def train_classifier_worker(rank, world_size, config, spectra_or_lightcurves):
     
     # Create directories if they don't exist
     test_name = config['data']['test_name']
-    model_dir = models_path / test_name / model_str / model_parent_str
+    model_dir = models_path / test_name / model_str
     print(f"Saving model to directory: {model_dir}")
     ckpt_dir = model_dir / "ckpt"
     logs_dir = model_dir / "loss_plots"

@@ -84,6 +84,8 @@ def create_model_str(config: Dict[str, Any], data_name: str) -> str:
     )
     if 'use_uncertainty' in config['model']:
         base_fmt += f"useUncertainty{config['model']['use_uncertainty']}_"
+    if 'sinpos_embed' in config['model']:
+        base_fmt += f"sinpos{config['model']['sinpos_embed']}_"
     if 'fourier_embed' in config['model']:
         base_fmt += f"fourier{config['model']['fourier_embed']}_"
     base_fmt += (
@@ -99,16 +101,85 @@ def create_model_str(config: Dict[str, Any], data_name: str) -> str:
     model_str = str(base_fmt)
     return model_str
 
+# def create_model_str_classifier(config: Dict[str, Any], data_name: str) -> str:
+#     base_fmt = f"{data_name}_"
+#     if 'bottlenecklen' in config['model']:
+#         base_fmt += f"{config['model']['bottlenecklen']}-{config['model']['bottleneckdim']}-"
+#     else:
+#         base_fmt += f"{config['model_new_encoder']['bottlenecklen']}-{config['model_new_encoder']['bottleneckdim']}-"
+#     if 'classifier_dropout' in config['model']:
+#         base_fmt += f"classifierdropP{config['model']['classifier_dropout']}_"
+#     if 'dropping_prob' in config['model']:
+#         base_fmt += f"modaldropP{config['model']['dropping_prob']}_"
+#     base_fmt += (
+#         f"lr{config['training']['lr']}_batch{config['training']['batch']}_reg{config['model']['regularize']}_"
+#         f"aug{config['training']['aug']}_date{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
+#     )
+#     model_str = str(base_fmt)
+#     return model_str
+
 def create_model_str_classifier(config: Dict[str, Any], data_name: str) -> str:
-    base_fmt = (
-        f"{data_name}_{config['model']['bottlenecklen']}-{config['model']['bottleneckdim']}-"
-    )
-    if 'classifier_dropout' in config['model']:
-        base_fmt += f"classifierdropP{config['model']['classifier_dropout']}_"
-    if 'dropping_prob' in config['model']:
-        base_fmt += f"modaldropP{config['model']['dropping_prob']}_"
+    # Use a base format string and insert extra fields only if needed for compactness
+    
+    if 'pretrained_encoder_config' in config:
+        bottleneck_len = config['pretrained_encoder_config']['model']['bottlenecklen']
+        bottleneck_dim = config['pretrained_encoder_config']['model']['bottleneckdim']
+    else:
+        bottleneck_len = config['model_new_encoder']['bottlenecklen']
+        bottleneck_dim = config['model_new_encoder']['bottleneckdim']
+    
+    base_fmt = f"{data_name}_{bottleneck_len}-{bottleneck_dim}-"
+    
+    # Include spectra and photometry token numbers if they are present
+    if config['data']["lightcurve_test_name"] is not None and config['data']["spectra_test_name"] is not None:
+        if 'pretrained_encoder_config' in config:
+            if 'spectra_tokens' in config['pretrained_encoder_config']['model'] and 'photometry_tokens' in config['pretrained_encoder_config']['model']:
+                spectra_tokens = config['pretrained_encoder_config']['model']['spectra_tokens']
+                photometry_tokens = config['pretrained_encoder_config']['model']['photometry_tokens']
+                base_fmt += f"{spectra_tokens}-{photometry_tokens}-"
+        else:
+            if 'model_new_encoder_multimodal' in config:
+                spectra_tokens = config['model_new_encoder_multimodal']['spectra_tokens']
+                photometry_tokens = config['model_new_encoder_multimodal']['photometry_tokens']
+                base_fmt += f"{spectra_tokens}-{photometry_tokens}-"
+    
+    if 'pretrained_encoder_config' in config:
+        encoder_layers = config['pretrained_encoder_config']['model']['encoder_layers']
+        encoder_heads = config['pretrained_encoder_config']['model']['encoder_heads']
+        model_dim = config['pretrained_encoder_config']['model']['model_dim']
+    else:
+        encoder_layers = config['model_new_encoder']['encoder_layers']
+        encoder_heads = config['model_new_encoder']['encoder_heads']
+        model_dim = config['model_new_encoder']['model_dim']
+    
+    base_fmt += f"{encoder_layers}-{encoder_heads}-{model_dim}_"
+    
+    base_fmt += f"useUncertainty{config['model_new_encoder']['use_uncertainty']}_"
+    base_fmt += f"sinpos{config['model_new_encoder']['sinpos_embed']}_"
+    base_fmt += f"fourier{config['model_new_encoder']['fourier_embed']}_"
+    
+    if 'pretrained_encoder_config' in config:
+        concat = config['pretrained_encoder_config']['model']['concat']
+        cross_attn_only = config['pretrained_encoder_config']['model']['cross_attn_only']
+    else:
+        concat = config['model_new_encoder']['concat']
+        cross_attn_only = config['model_new_encoder']['cross_attn_only']
+    
     base_fmt += (
-        f"lr{config['training']['lr']}_batch{config['training']['batch']}_reg{config['model']['regularize']}_"
+        f"concat{concat}_crossattnonly{cross_attn_only}_"
+        f"lr{config['training']['lr']}_"
+    )
+    
+    if 'pretrained_encoder_config' in config:
+        if 'dropping_prob' in config['pretrained_encoder_config']['model']:
+            base_fmt += f"modaldropP{config['pretrained_encoder_config']['model']['dropping_prob']}_"
+    else:
+        if 'model_new_encoder_multimodal' in config:
+            if 'dropping_prob' in config['model_new_encoder_multimodal']:
+                base_fmt += f"modaldropP{config['model_new_encoder_multimodal']['dropping_prob']}_"
+    
+    base_fmt += (
+        f"batch{config['training']['batch']}_reg{config['model']['regularize']}_"
         f"aug{config['training']['aug']}_date{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
     )
     model_str = str(base_fmt)

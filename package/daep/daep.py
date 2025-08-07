@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from daep.diffusion import GaussianDiffusionTrainer, GaussianDiffusionSampler
-from daep.util_layers import SinusoidalMLPPositionalEmbedding
+from daep.util_layers import SinusoidalMLPPositionalEmbedding, learnable_fourier_encoding
 from daep.mmd import RBF, MMD, robust_mean_squared_error, mean_squared_error
 import torch.distributions as dist
 import random
@@ -15,12 +15,16 @@ class unimodaldaep(nn.Module):
     def __init__(self, encoder, score, MMD = None, name = "flux",
                 prior = dist.Laplace, regularize = 0.0001, 
                 beta_1 = 1e-4, beta_T = 0.02, 
-                T = 1000, output_uncertainty = False
+                T = 1000, output_uncertainty = False,
+                sinpos = True, fourier = False
                 ):
         super().__init__()
         self.encoder = encoder
         self.score_model = score
-        self.diffusion_time_embd = SinusoidalMLPPositionalEmbedding(score.model_dim)
+        self.use_fourier = fourier
+        self.use_sinpos = sinpos
+        self.diffusion_time_embd_fourier = learnable_fourier_encoding(score.model_dim)
+        self.diffusion_time_embd_sinpos = SinusoidalMLPPositionalEmbedding(score.model_dim)
         self.diffusion_trainer = GaussianDiffusionTrainer(beta_1, beta_T, T)
         self.diffusion_sampler = GaussianDiffusionSampler(beta_1, beta_T, T)
         self.MMD = MMD
@@ -41,9 +45,23 @@ class unimodaldaep(nn.Module):
     
     def score(self, xt, t, cond = None):
         if cond is not None:
-            aux = self.diffusion_time_embd(t)
+            if self.use_fourier and self.use_sinpos:
+                aux = self.diffusion_time_embd_fourier(t) + self.diffusion_time_embd_sinpos(t)
+            elif self.use_fourier:
+                aux = self.diffusion_time_embd_fourier(t)
+            elif self.use_sinpos:
+                aux = self.diffusion_time_embd_sinpos(t)
+            else:
+                aux = t
         else:
-            cond = self.diffusion_time_embd(t)
+            if self.use_fourier and self.use_sinpos:
+                cond = self.diffusion_time_embd_fourier(t) + self.diffusion_time_embd_sinpos(t)
+            elif self.use_fourier:
+                cond = self.diffusion_time_embd_fourier(t)
+            elif self.use_sinpos:
+                cond = self.diffusion_time_embd_sinpos(t)
+            else:
+                cond = t
             aux = None
         return self.score_model(xt, cond, aux) # score model take xt, cond and aux, cond is always assume to be not None
     
@@ -138,7 +156,8 @@ class multimodaldaep(nn.Module):
     def __init__(self, tokenizers, encoder, scores, measurement_names, modality_weights = None,
                  modality_dropping_during_training = lambda x: x,
                  beta_1 = 1e-4, beta_T = 0.02, 
-                 T = 1000, output_uncertainty = False):
+                 T = 1000, output_uncertainty = False,
+                 sinpos = True, fourier = False):
         '''
         Args:
             tokenizers: {modality: tokenizer} that should share the same out put dimension (can be different seqlen)
@@ -162,7 +181,10 @@ class multimodaldaep(nn.Module):
         
         self.model_dim = min(modeldims)
         
-        self.diffusion_time_embd = SinusoidalMLPPositionalEmbedding(self.model_dim)
+        self.diffusion_time_embd_fourier = learnable_fourier_encoding(self.model_dim)
+        self.diffusion_time_embd_sinpos = SinusoidalMLPPositionalEmbedding(self.model_dim)
+        self.use_fourier = fourier
+        self.use_sinpos = sinpos
         self.diffusion_trainer = GaussianDiffusionTrainer(beta_1, beta_T, T)
         self.diffusion_sampler = GaussianDiffusionSampler(beta_1, beta_T, T)
         self.latent_len = encoder.bottleneck_length
@@ -191,9 +213,23 @@ class multimodaldaep(nn.Module):
     def get_score(self, key):
         def score(xt, t, cond = None):
             if cond is not None:
-                aux = self.diffusion_time_embd(t)
+                if self.use_fourier and self.use_sinpos:
+                    aux = self.diffusion_time_embd_fourier(t) + self.diffusion_time_embd_sinpos(t)
+                elif self.use_fourier:
+                    aux = self.diffusion_time_embd_fourier(t)
+                elif self.use_sinpos:
+                    aux = self.diffusion_time_embd_sinpos(t)
+                else:
+                    aux = t
             else:
-                cond = self.diffusion_time_embd(t)
+                if self.use_fourier and self.use_sinpos:
+                    cond = self.diffusion_time_embd_fourier(t) + self.diffusion_time_embd_sinpos(t)
+                elif self.use_fourier:
+                    cond = self.diffusion_time_embd_fourier(t)
+                elif self.use_sinpos:
+                    cond = self.diffusion_time_embd_sinpos(t)
+                else:
+                    cond = t
                 aux = None
             return self.scores[key](xt, cond, aux)
         return score

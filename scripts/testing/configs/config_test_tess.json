@@ -15,9 +15,9 @@
         "aug": 1
     },
     "model": {
-        "bottlenecklen": 4,
-        "bottleneckdim": 4,
-        "model_dim": 128,
+        "bottlenecklen": 16,
+        "bottleneckdim": 16,
+        "model_dim": 256,
         "encoder_layers": 4,
         "decoder_layers": 4,
         "encoder_heads": 4,
@@ -25,7 +25,8 @@
         "concat": true,
         "cross_attn_only": false,
         "regularize": 0.00,
-        "use_uncertainty": false
+        "use_uncertainty": false,
+        "fourier_embed": true
     },
     "distributed": {
         "init_method": "tcp://127.0.0.1:23456",

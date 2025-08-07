@@ -25,7 +25,8 @@
         "concat": true,
         "cross_attn_only": false,
         "regularize": 0.00,
-        "fourier_embed": false,
+        "sinpos_embed": true,
+        "fourier_embed": true,
         "use_uncertainty": false
     },
     "checkpoint": {

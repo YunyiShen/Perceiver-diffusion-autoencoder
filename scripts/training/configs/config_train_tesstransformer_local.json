@@ -13,37 +13,19 @@
         "epoch": 1000,
         "lr": 1e-3,
         "batch": 32,
-        "save_every": 5,
+        "save_every": 20,
         "aug": 1
     },
     "model": {
+        "bottlenecklen": 16,
+        "bottleneckdim": 16,
+        "dropping_prob": 0.4,
         "classifier_dropout": 0.1,
         "regularize": 0.0,
 
         "num_classes": 9,
         
-        "use_pretrained_encoder": true,
-        "pretrained_encoder_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves/tess_20k/TESSlightcurve_16-16-4-4-4-4-256_useUncertaintyFalse_sinposTrue_fourierTrue_concatTrue_crossattnonlyFalse_lr0.00025_batch16_reg0.0_aug1_date2025-08-07_10-12/ckpt/epoch_150_date_2025-08-07_14-44.pth",
-        "freeze_pretrained_encoder": false
-    },
-    "model_new_encoder": {
-        "bottlenecklen": 8,
-        "bottleneckdim": 8,
-        "model_dim": 128,
-        "encoder_layers": 4,
-        "encoder_heads": 4,
-        "concat": true,
-        "cross_attn_only": false,
-        "regularize": 0.00,
-        "sinpos_embed": false,
-        "fourier_embed": true,
-        "use_uncertainty": false
-    },
-    "model_new_encoder_multimodal": {
-        "spectra_tokens": 256,
-        "photometry_tokens": 256,
-        "mixer_selfattn": true,
-        "dropping_prob": 0.2
+        "pretrained_encoder_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves/tess_20k/TESSlightcurve_16-16-4-4-4-4-256_useUncertaintyFalse_fourierTrue_concatTrue_crossattnonlyFalse_lr0.00025_batch16_reg0.0_aug1_date2025-08-06_13-03/ckpt/epoch_230_date_2025-08-06_20-50.pth"
     },
     "checkpoint": {
         "load_checkpoint": false,

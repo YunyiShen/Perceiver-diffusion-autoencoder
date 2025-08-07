@@ -79,6 +79,7 @@ def initialize_model(device, model_mode, config):
             ff_dim=config["model"]["model_dim"],
             num_layers=config["model"]["encoder_layers"],
             concat=config["model"]["concat"],
+            sinpos = config["model"]["sinpos_embed"],
             fourier=config["model"]["fourier_embed"],
         )
         score = photometricTransceiverScore2stages(
@@ -90,10 +91,13 @@ def initialize_model(device, model_mode, config):
             num_layers=config["model"]["decoder_layers"],
             concat=config["model"]["concat"],
             cross_attn_only=config["model"]["cross_attn_only"],
+            sinpos = config["model"]["sinpos_embed"],
             fourier=config["model"]["fourier_embed"],
-            output_uncertainty=config["model"]["use_uncertainty"]
+            output_uncertainty=config["model"]["use_uncertainty"],
         )
-        mydaep = unimodaldaep(encoder, score, regularize=config["model"]["regularize"]).to(device)
+        mydaep = unimodaldaep(encoder, score, regularize=config["model"]["regularize"],
+                              sinpos = config["model"]["sinpos_embed"],
+                              fourier = config["model"]["fourier_embed"]).to(device)
     elif model_mode == "both":
         from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScore2stages
         from daep.PhotometricLayers import photometricTransceiverEncoder, photometricTransceiverScore2stages
@@ -118,6 +122,7 @@ def initialize_model(device, model_mode, config):
                 ff_dim = config["model"]["model_dim"],
                 num_layers = config["model"]["encoder_layers"],
                 num_heads = config["model"]["encoder_heads"],
+                sinpos = config["model"]["sinpos_embed"],
                 fourier=config["model"]["fourier_embed"],
                 output_uncertainty=config["model"]["use_uncertainty"]
             )
@@ -149,6 +154,7 @@ def initialize_model(device, model_mode, config):
                     num_heads = config["model"]["decoder_heads"],
                     num_layers = config["model"]["decoder_layers"],
                     concat = config["model"]["concat"],
+                    sinpos = config["model"]["sinpos_embed"],
                     fourier=config["model"]["fourier_embed"],
                     output_uncertainty=config["model"]["use_uncertainty"]
             )
@@ -157,7 +163,9 @@ def initialize_model(device, model_mode, config):
             tokenizers, encoder, scores,
             measurement_names={"spectra": "flux", "photometry": "flux"},
             modality_dropping_during_training=partial(modality_drop, p_drop=config["model"]["dropping_prob"]),
-            output_uncertainty=config["model"]["use_uncertainty"]
+            output_uncertainty=config["model"]["use_uncertainty"],
+            sinpos = config["model"]["sinpos_embed"],
+            fourier = config["model"]["fourier_embed"]
         ).to(device)
     
     elif model_mode == "both_from_pretrained_encoders":
@@ -199,7 +207,8 @@ def initialize_model(device, model_mode, config):
                         ff_dim = config["model"]["model_dim"],
                         num_heads = config["model"]["decoder_heads"],
                         num_layers = config["model"]["decoder_layers"],
-                        concat = config["model"]["concat"]
+                        concat = config["model"]["concat"],
+                        output_uncertainty=config["model"]["use_uncertainty"],
                         ), 
             "photometry": photometricTransceiverScore2stages(
                 bottleneck_dim = config["model"]["bottleneckdim"],
@@ -208,14 +217,21 @@ def initialize_model(device, model_mode, config):
                     ff_dim = config["model"]["model_dim"],
                     num_heads = config["model"]["decoder_heads"],
                     num_layers = config["model"]["decoder_layers"],
-                    concat = config["model"]["concat"]
+                    concat = config["model"]["concat"],
+                    sinpos = config["model"]["sinpos_embed"],
+                    fourier=config["model"]["fourier_embed"],
+                    output_uncertainty=config["model"]["use_uncertainty"],
             )
         }
         mydaep = multimodaldaep(
             tokenizers, encoder, scores,
             measurement_names={"spectra": "flux", "photometry": "flux"},
-            modality_dropping_during_training=partial(modality_drop, p_drop=config["model"]["dropping_prob"])
+            modality_dropping_during_training=partial(modality_drop, p_drop=config["model"]["dropping_prob"]),
+            sinpos = config["model"]["sinpos_embed"],
+            fourier = config["model"]["fourier_embed"]
         ).to(device)
+    
+    # elif model_mode == 
         
     return mydaep
 
