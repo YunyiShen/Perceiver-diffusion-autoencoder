@@ -88,13 +88,11 @@ def evaluate_classifier_model(model: Union[unimodaldaepclassifier, multimodaldae
     all_test_instance_idxs = []
     all_star_ids = []
     
-    print("Generating classification predictions...")
     with torch.no_grad():
         for batch in tqdm(test_loader, desc="Generating predictions", unit="batch"):
             model_input, targets = extract_targets_from_batch(batch, device)
             
             if model_input is None:
-                print(f"Warning: No targets found in batch")
                 continue
             
             # Generate predictions
@@ -119,6 +117,10 @@ def evaluate_classifier_model(model: Union[unimodaldaepclassifier, multimodaldae
             else:
                 # Single class labels
                 ground_truth_classes = targets.flatten()
+            
+            # Ensure both are 1D arrays
+            predicted_classes = predicted_classes.flatten()
+            ground_truth_classes = ground_truth_classes.flatten()
             
             # Get test instance indices
             try:
@@ -202,7 +204,6 @@ def evaluate_classifier_model_multimodal(model: multimodaldaepclassifier, test_l
     
     for input_modality in input_modalities:
         for output_modality in output_modalities:
-            print(f"Evaluating input modality: {input_modality} to output modality: {output_modality}")
             all_results[input_modality][output_modality] = evaluate_classifier_model(
                 model, test_loader, test_dataset, 
                 spectra_or_lightcurves=output_modality,
@@ -212,7 +213,7 @@ def evaluate_classifier_model_multimodal(model: multimodaldaepclassifier, test_l
     return all_results
 
 
-def calculate_classification_metrics(results: Dict[str, np.ndarray], 
+def calculate_classification_metrics(results: Dict[str, np.ndarray], dataset: Dataset,
                                    input_modalities: Optional[list] = None, 
                                    output_modalities: Optional[list] = None) -> Dict[str, float]:
     """
@@ -246,12 +247,38 @@ def calculate_classification_metrics(results: Dict[str, np.ndarray],
         predictions = results['predictions']
         ground_truth = results['ground_truth']
         
+        # Ensure both predictions and ground_truth are in single class label format
+        if len(predictions.shape) > 1 and predictions.shape[1] > 1:
+            # Predictions are one-hot encoded, convert to single labels
+            predictions = np.argmax(predictions, axis=1)
+        
+        if len(ground_truth.shape) > 1 and ground_truth.shape[1] > 1:
+            # Ground truth are one-hot encoded, convert to single labels
+            ground_truth = np.argmax(ground_truth, axis=1)
+        
+        # Ensure both are 1D arrays
+        predictions = predictions.flatten()
+        print(predictions)
+        ground_truth = ground_truth.flatten()
+        print(ground_truth)
+        
+        # Get class names if available, otherwise use integers
+        if hasattr(dataset, 'starclass_name_to_int'):
+            # Use actual class names from the dataset
+            class_names = list(dataset.starclass_name_to_int.keys())
+            labels = list(range(len(class_names)))  # Use integer labels for sklearn functions
+        else:
+            # Fallback to integer labels if no class names available
+            unique_classes = np.unique(np.concatenate([predictions, ground_truth]))
+            class_names = [f'class_{i}' for i in unique_classes]
+            labels = unique_classes
+        
         # Calculate confusion matrix
-        cm = confusion_matrix(ground_truth, predictions)
+        cm = confusion_matrix(ground_truth, predictions, labels=labels)
         
         # Calculate per-class metrics
         precision, recall, f1, support = precision_recall_fscore_support(
-            ground_truth, predictions, average=None, zero_division=0
+            ground_truth, predictions, average=None, zero_division=0, labels=labels
         )
         
         # Calculate per-class accuracy (diagonal of confusion matrix / row sums)
@@ -260,14 +287,14 @@ def calculate_classification_metrics(results: Dict[str, np.ndarray],
         # Calculate total metrics
         total_accuracy = float(accuracy_score(ground_truth, predictions))
         total_precision, total_recall, total_f1, _ = precision_recall_fscore_support(
-            ground_truth, predictions, average='macro', zero_division=0
+            ground_truth, predictions, average='macro', zero_division=0, labels=labels
         )
         
-        # Create per-class metrics dictionary
+        # Create per-class metrics dictionary using class names
         num_classes = len(cm)
         class_metrics = {}
         for i in range(num_classes):
-            class_metrics[f'class_{i}'] = {
+            class_metrics[class_names[i]] = {
                 'accuracy': float(class_accuracy[i]),
                 'recall': float(recall[i]),
                 'precision': float(precision[i]),
@@ -287,7 +314,8 @@ def calculate_classification_metrics(results: Dict[str, np.ndarray],
             'confusion_matrix': cm,
             'class_metrics': class_metrics,
             'total_metrics': total_metrics,
-            'num_classes': num_classes
+            'num_classes': num_classes,
+            'class_names': class_names
         }
     
     if len(input_modalities) <= 1 and len(output_modalities) <= 1:
@@ -296,7 +324,6 @@ def calculate_classification_metrics(results: Dict[str, np.ndarray],
         all_metrics = {input_modality: {output_modality: None for output_modality in output_modalities} for input_modality in input_modalities}
         for input_modality in input_modalities:
             for output_modality in output_modalities:
-                print(f"=== Calculating metrics for input modality: {input_modality} to output modality: {output_modality} ===")
                 all_metrics[input_modality][output_modality] = primary(results[input_modality][output_modality])
         return all_metrics
 
@@ -347,7 +374,8 @@ def print_classification_metrics(metrics: Dict[str, float],
 
 def plot_confusion_matrix(results: Dict[str, np.ndarray], save_dir: Path, 
                          input_modalities: Optional[list] = None, 
-                         output_modalities: Optional[list] = None):
+                         output_modalities: Optional[list] = None,
+                         dataset: Optional[Dataset] = None):
     """
     Plot confusion matrix for classification results.
     
@@ -361,21 +389,40 @@ def plot_confusion_matrix(results: Dict[str, np.ndarray], save_dir: Path,
         List of input modalities for multimodal models
     output_modalities : list, optional
         List of output modalities for multimodal models
+    dataset : Dataset, optional
+        Dataset object to get class names from
     """
-    def primary(results, save_dir, modality_name=""):
+    def primary(results, save_dir, modality_name="", dataset=None):
         predictions = results['predictions']
         ground_truth = results['ground_truth']
         
+        # Get class names if available
+        if dataset is not None and hasattr(dataset, 'starclass_name_to_int'):
+            class_names = list(dataset.starclass_name_to_int.keys())
+            labels = list(range(len(class_names)))
+        else:
+            # Fallback to integer labels
+            unique_classes = np.unique(np.concatenate([predictions, ground_truth]))
+            class_names = [f'Class {i}' for i in unique_classes]
+            labels = unique_classes
+        
         # Calculate confusion matrix
-        cm = confusion_matrix(ground_truth, predictions)
+        cm = confusion_matrix(ground_truth, predictions, labels=labels)
         
         # Create plot
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=(12, 10))
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                   xticklabels=range(len(cm)), yticklabels=range(len(cm)))
+                   xticklabels=class_names, yticklabels=class_names)
         plt.title(f'Confusion Matrix{modality_name}')
         plt.xlabel('Predicted Class')
         plt.ylabel('True Class')
+        
+        # Rotate x-axis labels for better readability
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        
+        # Adjust layout to prevent label cutoff
+        plt.tight_layout()
         
         # Save plot
         save_path = save_dir / f'confusion_matrix{modality_name}.png'
@@ -384,17 +431,18 @@ def plot_confusion_matrix(results: Dict[str, np.ndarray], save_dir: Path,
         print(f"Confusion matrix saved to: {save_path}")
     
     if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(results, save_dir)
+        primary(results, save_dir, dataset=dataset)
     else:
         for input_modality in input_modalities:
             for output_modality in output_modalities:
                 modality_name = f"_input_{input_modality}_output_{output_modality}"
-                primary(results[input_modality][output_modality], save_dir, modality_name)
+                primary(results[input_modality][output_modality], save_dir, modality_name, dataset=dataset)
 
 
 def plot_classification_metrics_summary(metrics: Dict[str, float], save_dir: Path,
                                        input_modalities: Optional[list] = None, 
-                                       output_modalities: Optional[list] = None):
+                                       output_modalities: Optional[list] = None,
+                                       dataset: Optional[Dataset] = None):
     """
     Create a table of the classification evaluation metrics as an image.
     
@@ -408,13 +456,15 @@ def plot_classification_metrics_summary(metrics: Dict[str, float], save_dir: Pat
         List of input modalities for multimodal models
     output_modalities : list, optional
         List of output modalities for multimodal models
+    dataset : Dataset, optional
+        Dataset object to get class names from
     """
-    def primary(metrics, save_dir, modality_name=""):
+    def primary(metrics, save_dir, modality_name="", dataset=None):
         save_path = Path(save_dir)
         save_path.mkdir(exist_ok=True)
         
         # Create figure for table
-        fig, ax = plt.subplots(figsize=(12, 8))
+        fig, ax = plt.subplots(figsize=(14, 10))  # Increased figure size for better readability
         ax.axis('tight')
         ax.axis('off')
         
@@ -450,8 +500,8 @@ def plot_classification_metrics_summary(metrics: Dict[str, float], save_dir: Pat
         # Create table
         table = ax.table(cellText=table_data, colLabels=headers, cellLoc='center', loc='center')
         table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1.2, 1.5)
+        table.set_fontsize(9)  # Slightly smaller font to fit more content
+        table.scale(1.2, 1.8)  # Increased height scaling for better spacing
         
         # Style the table
         for i in range(len(headers)):
@@ -472,18 +522,19 @@ def plot_classification_metrics_summary(metrics: Dict[str, float], save_dir: Pat
         print(f"Performance table saved to: {save_path}")
     
     if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(metrics, save_dir)
+        primary(metrics, save_dir, dataset=dataset)
     else:
         for input_modality in input_modalities:
             for output_modality in output_modalities:
                 modality_name = f"_input_{input_modality}_output_{output_modality}"
-                primary(metrics[input_modality][output_modality], save_dir, modality_name)
+                primary(metrics[input_modality][output_modality], save_dir, modality_name, dataset=dataset)
 
 
 def save_classification_results(results: Dict[str, np.ndarray], metrics: Dict[str, float], 
                                save_dir: Path, spectra_or_lightcurves: str,
                                input_modalities: Optional[list] = None, 
-                               output_modalities: Optional[list] = None):
+                               output_modalities: Optional[list] = None,
+                               dataset: Optional[Dataset] = None):
     """
     Save classification results and metrics to files.
     
@@ -501,8 +552,19 @@ def save_classification_results(results: Dict[str, np.ndarray], metrics: Dict[st
         List of input modalities for multimodal models
     output_modalities : list, optional
         List of output modalities for multimodal models
+    dataset : Dataset, optional
+        Dataset object to get class names from
     """
     save_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get labels for classification report
+    if dataset is not None and hasattr(dataset, 'starclass_name_to_int'):
+        labels = list(range(len(dataset.starclass_name_to_int)))
+    else:
+        # Fallback: get unique classes from predictions and ground truth
+        predictions = results['predictions'] if len(input_modalities) <= 1 else results[input_modalities[0]][output_modalities[0]]['predictions']
+        ground_truth = results['ground_truth'] if len(input_modalities) <= 1 else results[input_modalities[0]][output_modalities[0]]['ground_truth']
+        labels = np.unique(np.concatenate([predictions, ground_truth]))
     
     if len(input_modalities) <= 1 and len(output_modalities) <= 1:
         # Save results
@@ -524,9 +586,14 @@ def save_classification_results(results: Dict[str, np.ndarray], metrics: Dict[st
         with open(save_dir / 'metrics.json', 'w') as f:
             json.dump(metrics, f, indent=2, default=str)
         
-        # Save detailed classification report
-        report = classification_report(results['ground_truth'], results['predictions'], 
-                                     output_dict=True, zero_division=0)
+        # Save detailed classification report with class names if available
+        if dataset is not None and hasattr(dataset, 'starclass_name_to_int'):
+            target_names = list(dataset.starclass_name_to_int.keys())
+            report = classification_report(results['ground_truth'], results['predictions'], 
+                                         target_names=target_names, output_dict=True, zero_division=0, labels=labels)
+        else:
+            report = classification_report(results['ground_truth'], results['predictions'], 
+                                         output_dict=True, zero_division=0, labels=labels)
         with open(save_dir / 'classification_report.json', 'w') as f:
             json.dump(report, f, indent=2)
             
@@ -582,9 +649,14 @@ def save_classification_results(results: Dict[str, np.ndarray], metrics: Dict[st
                 with open(modality_dir / 'metrics.json', 'w') as f:
                     json.dump(modality_metrics, f, indent=2, default=str)
                 
-                # Save detailed classification report
-                report = classification_report(modality_results['ground_truth'], modality_results['predictions'], 
-                                             output_dict=True, zero_division=0)
+                # Save detailed classification report with class names if available
+                if dataset is not None and hasattr(dataset, 'starclass_name_to_int'):
+                    target_names = list(dataset.starclass_name_to_int.keys())
+                    report = classification_report(modality_results['ground_truth'], modality_results['predictions'], 
+                                                 target_names=target_names, output_dict=True, zero_division=0, labels=labels)
+                else:
+                    report = classification_report(modality_results['ground_truth'], modality_results['predictions'], 
+                                                 output_dict=True, zero_division=0, labels=labels)
                 with open(modality_dir / 'classification_report.json', 'w') as f:
                     json.dump(report, f, indent=2)
                 
@@ -693,7 +765,6 @@ def run_classification_tests(config_path: str = "config.json", spectra_or_lightc
         if not results_dir.exists():
             raise FileNotFoundError(f"Results directory not found: {results_dir}")
         print("Loading saved classification results for plotting...")
-        # Load saved results and create plots
         # This would need to be implemented based on the saved format
         return
     
@@ -716,22 +787,22 @@ def run_classification_tests(config_path: str = "config.json", spectra_or_lightc
         results = evaluate_classifier_model(model, test_loader, test_data, spectra_or_lightcurves)
     
     print("Calculating classification metrics...")
-    metrics = calculate_classification_metrics(results, input_modalities=input_modalities, output_modalities=output_modalities)
+    metrics = calculate_classification_metrics(results, test_data, input_modalities=input_modalities, output_modalities=output_modalities)
     
     # Print metrics
     print_classification_metrics(metrics, input_modalities=input_modalities, output_modalities=output_modalities)
     
     print(f"\nSaving results to: {analysis_dir / 'saved_results'}")
     save_classification_results(results, metrics, analysis_dir / 'saved_results', 
-                               spectra_or_lightcurves, input_modalities=input_modalities, output_modalities=output_modalities)
+                               spectra_or_lightcurves, input_modalities=input_modalities, output_modalities=output_modalities, dataset=test_data)
     
     # Create plots if not save_results_only
     if not save_results_only:
         print("Creating classification plots...")
-        plot_confusion_matrix(results, analysis_dir, input_modalities=input_modalities, output_modalities=output_modalities)
+        plot_confusion_matrix(results, analysis_dir, input_modalities=input_modalities, output_modalities=output_modalities, dataset=test_data)
         
         print("Creating metrics summary...")
-        plot_classification_metrics_summary(metrics, analysis_dir, input_modalities=input_modalities, output_modalities=output_modalities)
+        plot_classification_metrics_summary(metrics, analysis_dir, input_modalities=input_modalities, output_modalities=output_modalities, dataset=test_data)
         
         print(f"\nClassification testing complete! Results and plots saved in '{analysis_dir}' directory.")
     else:

@@ -408,6 +408,9 @@ class GALAHDatasetProcessedSubset(GALAHDatasetProcessed):
                  ids_path: Optional[Path] = None):
         super().__init__(data_dir, train, extract, use_uncertainty, raw_data_dir, galah_catalog_path, ids_path)
         
+        if num_spectra <= 0:
+            num_spectra = len(self.fluxes)
+        
         # Set the random seed for reproducibility of the subset selection
         np.random.seed(42)
         subset_indices = np.random.choice(len(self.fluxes), num_spectra, replace=False)

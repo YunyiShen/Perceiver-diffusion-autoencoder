@@ -101,7 +101,8 @@ def initialize_classifier_model(device, spectra_or_lightcurves, config):
     """
     # Build classifier
     classifier = LCC(
-        emb_d=config["model"]["bottleneckdim"],
+        bottleneck_dim=config["model"]["bottleneckdim"],
+        bottleneck_len=config["model"]["bottlenecklen"],
         dropout_p=config["model"]["classifier_dropout"],
         num_classes=config["model"]["num_classes"]
     )

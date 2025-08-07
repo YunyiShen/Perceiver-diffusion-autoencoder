@@ -347,22 +347,17 @@ class unimodaldaepclassifier(nn.Module):
         else:
             mmd_loss = 0.0
         
-        # If targets are provided, compute classification loss
         if targets is not None:
-            # Handle different output formats (logits vs probabilities)
-            if class_output.shape[-1] == 1:  # Binary classification
-                classification_loss = F.binary_cross_entropy_with_logits(class_output.squeeze(), targets.float())
-            else:  # Multi-class classification
-                classification_loss = F.cross_entropy(class_output, targets)
+            # Convert one-hot encoded targets to class indices for cross_entropy
+            if len(targets.shape) > 1 and targets.shape[1] > 1:
+                # Targets are one-hot encoded, convert to class indices
+                targets = targets.argmax(dim=1)
             
+            classification_loss = F.cross_entropy(class_output, targets)
             total_loss = classification_loss + mmd_loss
             return classification_loss, mmd_loss, total_loss
         else:
-            # Return predictions (apply softmax for multi-class, sigmoid for binary)
-            if class_output.shape[-1] == 1:  # Binary classification
-                return torch.sigmoid(class_output.squeeze())
-            else:  # Multi-class classification
-                return F.softmax(class_output, dim=-1)
+            return F.softmax(class_output, dim=-1)
     
     def predict(self, x):
         """
@@ -452,6 +447,11 @@ class multimodaldaepclassifier(nn.Module):
         
         # If targets are provided, compute classification loss
         if targets is not None:
+            # Convert one-hot encoded targets to class indices for cross_entropy
+            if len(targets.shape) > 1 and targets.shape[1] > 1:
+                # Targets are one-hot encoded, convert to class indices
+                targets = targets.argmax(dim=1)
+            
             # Use cross_entropy for both binary and multi-class classification.
             classification_loss = F.cross_entropy(class_output, targets)
             

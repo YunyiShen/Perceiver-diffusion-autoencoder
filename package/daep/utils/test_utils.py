@@ -11,7 +11,7 @@ import re
 from daep.daep import unimodaldaep, multimodaldaep
 from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessedSubset
 from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessedSubset
-from daep.utils.general_utils import create_model_str
+from daep.utils.general_utils import create_model_str, create_model_str_classifier
 from daep.utils.plot_utils import plot_spectra_simple  # type: ignore
 
 
@@ -116,7 +116,15 @@ def auto_detect_model_path(config: Dict[str, Any], models_path: Path, test_name:
         Path to the most recent model checkpoint
     """
     # Look for models matching the current configuration
-    model_pattern = f"*{config['model']['bottlenecklen']}-{config['model']['bottleneckdim']}-{config['model']['encoder_layers']}-{config['model']['decoder_layers']}-{config['model']['encoder_heads']}-{config['model']['decoder_heads']}-{config['model']['model_dim']}*"
+    try:
+        model_str = create_model_str(config, '*')
+    except KeyError:
+        model_str = create_model_str_classifier(config, '*')
+    
+    # Remove 'date' and all characters after it in model_str for pattern matching
+    import re
+    model_str = re.sub(r'date.*', '', model_str)
+    model_pattern = f"{model_str}*"
 
     ckpt_dir = models_path / test_name / "ckpt"
     if ckpt_dir.exists():
@@ -144,7 +152,15 @@ def auto_detect_model_path(config: Dict[str, Any], models_path: Path, test_name:
         # Take the highest epoch checkpoint within model_dir
         checkpoint_files = list((model_dir / "ckpt").glob("*.pth"))
         if not checkpoint_files:
-            raise FileNotFoundError(f"No checkpoint files found in {model_dir / 'ckpt'}")
+            # If no checkpoint files found in model_dir/ckpt, search inside the most recently created subfolder within model_dir
+            subdirs = [d for d in model_dir.iterdir() if d.is_dir()]
+            if not subdirs:
+                raise FileNotFoundError(f"No model subdirectories found in {model_dir / 'ckpt'}")
+            # Sort subdirectories by modification time (most recent first)
+            most_recent_subdir = sorted(subdirs, key=lambda x: x.stat().st_mtime, reverse=True)[0]
+            checkpoint_files = list((most_recent_subdir / 'ckpt').glob("*.pth"))
+            if not checkpoint_files:
+                raise FileNotFoundError(f"No checkpoint files found in {most_recent_subdir}")
         # Extract epoch numbers from filenames and select the highest
         import re
         def extract_epoch(filename):
@@ -226,8 +242,8 @@ def load_trained_model(model_path: Path, device: torch.device, config: Dict[str,
         # If the checkpoint is a model, we can just load the model
         model = checkpoint
     
-    if config["model"]["use_uncertainty"]:
-        model.output_uncertainty = True
+    if 'use_uncertainty' in config["model"]:
+        model.output_uncertainty = config["model"]["use_uncertainty"]
     else:
         model.output_uncertainty = False
     
@@ -724,11 +740,12 @@ def plot_metrics_summary(metrics: Dict[str, float], save_dir: str = 'test_result
         axes[0, 1].legend()
         
         # Plot 3: Uncertainty width
-        axes[1, 0].bar(0, [metrics['mean_uncertainty_width']], 0.5, label='Actual', color='lightcoral')
-        axes[1, 0].bar(1, [metrics['mean_uncertainty_width_gt']], 0.5, label='Ground Truth', color='skyblue')
+        axes[1, 0].bar(0, [abs(metrics['mean_uncertainty_width'])], 0.5, color='lightcoral')
+        axes[1, 0].bar(1, [abs(metrics['mean_uncertainty_width_gt'])], 0.5, color='skyblue')
         axes[1, 0].set_title('Mean Uncertainty Width')
         axes[1, 0].set_ylabel('Value')
-        axes[1, 0].legend()
+        axes[1, 0].set_xticks(np.arange(2))
+        axes[1, 0].set_xticklabels(['Mean Uncertainty Width', 'Ground Truth Mean Uncertainty Width'])
         
         # Plot 4: Correlation
         axes[1, 1].bar(['Uncertainty-Error\nCorrelation'], [metrics['uncertainty_error_correlation']], color='gold')

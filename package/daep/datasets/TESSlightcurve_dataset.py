@@ -17,7 +17,7 @@ ENV = detect_env()
 BASE_PATH, MODEL_PATH, DATA_PATH, RAW_DATA_PATH = set_paths(ENV, 'lightcurve')
 TESS_XMATCH_CATALOG_PATH = RAW_DATA_PATH + '/id_catalog_gt_1800.fits'
 
-TEST_NAME = 'tessv1'
+TEST_NAME = 'tess_1k'
 
 class TESSDataset(Dataset):
     
@@ -83,25 +83,33 @@ class TESSDataset(Dataset):
             One-hot encoded array of shape (num_samples, num_starclasses).
         """
         # Define the mapping from starclass names to integers
-        self.starclass_name_to_int = {'INSTRUMENT': 0, 'APERIODIC': 1, 'CONSTANT': 2, 'CONTACT_ROT': 3,
-                                     'DSCT_BCEP': 4, 'ECLIPSE': 5, 'GDOR_SPB': 6, 'RRLYR_CEPHEID': 7,
-                                     'SOLARLIKE': 8}
+        # self.starclass_name_to_int = {'INSTRUMENT': 0, 'APERIODIC': 1, 'CONSTANT': 2, 'CONTACT_ROT': 3,
+        #                              'DSCT_BCEP': 4, 'ECLIPSE': 5, 'GDOR_SPB': 6, 'RRLYR_CEPHEID': 7,
+        #                              'SOLARLIKE': 8}
+        self.starclass_name_to_int = {'APERIODIC': 0, 'CONSTANT': 1, 'CONTACT_ROT': 2,
+                                     'DSCT_BCEP': 3, 'ECLIPSE': 4, 'GDOR_SPB': 5, 'RRLYR_CEPHEID': 6,
+                                     'SOLARLIKE': 7}
         self.starclass_int_to_name = {v: k for k, v in self.starclass_name_to_int.items()}
         self.num_starclasses = len(self.starclass_name_to_int)
         
         # Extract starclass integer labels from the first column of self.labels
         starclass_names = self.labels[:, 0].astype(str)
-        starclass_ints = np.array([self.starclass_name_to_int[name] for name in starclass_names])
+        starclass_ints = []
+        idx_with_starclass = []
+        for idx, name in enumerate(starclass_names):
+            if name in self.starclass_name_to_int:
+                starclass_ints.append(self.starclass_name_to_int[name])
+                idx_with_starclass.append(idx)
+        starclass_ints = np.array(starclass_ints)
+        idx_with_starclass = np.array(idx_with_starclass)
 
         # Create one-hot encoded array
-        one_hot = np.zeros((starclass_ints.shape[0], self.num_starclasses), dtype=np.int64)
-        one_hot[np.arange(starclass_ints.shape[0]), starclass_ints] = 1.0
-
-        # Store as self.starclass for easy access
-        self.starclass = one_hot
-
-        # Comment: Added one-hot encoding of starclass labels for use in classification tasks.
-        return one_hot
+        if len(idx_with_starclass) > 0:
+            one_hot = np.zeros((self.fluxes.shape[0], self.num_starclasses), dtype=np.float32)
+            one_hot[idx_with_starclass, starclass_ints] = 1.0
+            self.starclass = one_hot
+        else:
+            self.starclass = np.zeros((self.fluxes.shape[0], self.num_starclasses), dtype=np.float32)
     
     def extract_data(self, raw_data_dir, tess_xmatch_catalog_path, targets_path=None):
         """"
@@ -120,12 +128,12 @@ class TESSDataset(Dataset):
         with fits.open(tess_xmatch_catalog_path) as hdul:    
             tess_xmatch_df = pd.DataFrame(hdul[1].data) #type: ignore
             tess_xmatch_df = convert_to_native_byte_order(tess_xmatch_df)
-            tess_xmatch_df['TIC'] = tess_xmatch_df['TIC'].astype(int)
+            tess_xmatch_df['TIC'] = tess_xmatch_df['TIC'].astype(str)
             
         all_targets_df = pd.read_csv(targets_path)
         all_targets_df = convert_to_native_byte_order(all_targets_df)
         all_targets_df = all_targets_df.rename(columns={'starname': 'TIC', 'lightcurve': 'path'})
-        all_targets_df['TIC'] = all_targets_df['TIC'].astype(int)
+        all_targets_df['TIC'] = all_targets_df['TIC'].astype(str)
         if 'path' not in all_targets_df.columns:
             all_targets_df['path'] = np.full(len(all_targets_df), None)
         if 'starclass' not in all_targets_df.columns:
@@ -200,10 +208,12 @@ class TESSDataset(Dataset):
             ticid = row.TIC
             try:
                 if row.path is not None:
-                    path_to_fits = raw_data_dir / row.path
-                    extracted_lc = self.extract_qlp_lightcurve(path_to_fits)
-                    if ticid != extracted_lc['ticid']:
-                        print(f"TICID mismatch: {ticid} != {extracted_lc['ticid']}")
+                    if row.path.endswith('.txt'):
+                        path_to_txt = raw_data_dir / row.path
+                        extracted_lc = self.extract_txt_lightcurve(path_to_txt)
+                    else:
+                        path_to_fits = raw_data_dir / row.path
+                        extracted_lc = self.extract_qlp_lightcurve(path_to_fits)
                     update_data_arrays(extracted_lc)
                 else:
                     for subset_dir in subset_dirs:
@@ -300,6 +310,27 @@ class TESSDataset(Dataset):
                 'teff': teff,
                 'logg': logg,
                 'date_obs_jd': date_obs_jd
+            }
+    def extract_txt_lightcurve(self, txt_path):
+        txt_path = Path(txt_path)
+        if not txt_path.exists():
+            raise FileNotFoundError(f"File not found: {txt_path}")
+        with open(txt_path, 'r') as f:
+            # Extract time, flux, and flux_err columns from the txt file
+            data = np.loadtxt(f)
+            time = data[:, 0]
+            flux = data[:, 1]
+            flux_err = data[:, 2]
+
+            return {
+                'time': time,
+                'flux': flux,
+                'flux_err': flux_err,
+                'quality': np.full(len(time), 0),
+                'ticid': txt_path.name,
+                'teff': np.nan,
+                'logg': np.nan,
+                'date_obs_jd': np.nan
             }
 
 class TESSDatasetProcessed(TESSDataset):
@@ -509,6 +540,10 @@ class TESSDatasetProcessedSubset(TESSDatasetProcessed):
                  targets_path: Optional[Path] = None):
         super().__init__(data_dir, train, extract, use_uncertainty, raw_data_dir, tess_xmatch_catalog_path, targets_path)
         
+        if num_lightcurves <= 0:
+            num_lightcurves = len(self.fluxes) - 1
+            print(f"Using all {num_lightcurves} lightcurves")
+        
         # Set the random seed for reproducibility of the subset selection
         np.random.seed(42)
         subset_indices = np.random.choice(len(self.fluxes), num_lightcurves, replace=False)
@@ -649,8 +684,8 @@ def create_and_extract_dataset(test_name: str = TEST_NAME, data_path: str = DATA
     else:
         targets_path = raw_data_dir / 'catalog.csv'
     
-    dataset = TESSDataset(data_dir=data_dir, raw_data_dir=raw_data_dir, tess_xmatch_catalog_path=tess_xmatch_catalog_path, targets_path=targets_path, train=True, extract=True)
-    dataset_test = TESSDataset(data_dir=data_dir, raw_data_dir=raw_data_dir, tess_xmatch_catalog_path=tess_xmatch_catalog_path, targets_path=targets_path, train=False, extract=True)
+    dataset = TESSDataset(data_dir=data_dir, raw_data_dir=raw_data_dir, tess_xmatch_catalog_path=tess_xmatch_catalog_path, targets_path=targets_path, train=True, extract=False)
+    # dataset_test = TESSDataset(data_dir=data_dir, raw_data_dir=raw_data_dir, tess_xmatch_catalog_path=tess_xmatch_catalog_path, targets_path=targets_path, train=False, extract=True)
 
 import fire
 

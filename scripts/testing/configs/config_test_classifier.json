@@ -17,15 +17,15 @@
         "aug": 1
     },
     "model": {
-        "bottlenecklen": 16,
-        "bottleneckdim": 16,
+        "bottlenecklen": 8,
+        "bottleneckdim": 8,
         "dropping_prob": 0.4,
         "classifier_dropout": 0.1,
         "regularize": 0.0,
 
         "num_classes": 9,
         
-        "pretrained_encoder_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves/tess_20k/TESSlightcurve_16-16-4-4-4-4-256_useUncertaintyFalse_fourierTrue_concatTrue_crossattnonlyFalse_lr0.00025_batch16_reg0.0_aug1_date2025-08-06_13-03/ckpt/epoch_230_date_2025-08-06_20-50.pth"
+        "pretrained_encoder_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves/tessv1/TESSlightcurve_4-4-4-4-4-4-128_useUncertaintyFalse_fourierTrue_concatTrue_crossattnonlyFalse_lr0.00025_batch4_reg0.0_aug1_date2025-08-04_16-53/ckpt/epoch_10_date_2025-08-04_17-08.pth"
     },
     "checkpoint": {
         "load_checkpoint": false,
@@ -40,9 +40,9 @@
         "pin_memory": true
     },
     "testing": {
-        "num_spectra": 5,
-        "num_samples": 1,
-        "num_examples": 3,
+        "use_checkpoint_path": false,
+        "checkpoint_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves_classifier/tessv1/TESSlightcurve_classifier_8-8-classifierdropP0.1_modaldropP0.4_lr0.001_batch32_reg0.0_aug1_date2025-08-06_13-55/TESSlightcurve_8-8-4-4-4-4-256_useUncertaintyFalse_fourierTrue_concatTrue_crossattnonlyFalse_lr0.00025_batch16_reg0.0_aug1_date2025-08-05_21-40/ckpt/epoch_400_date_2025-08-06_15-58.pth",
+        "num_lightcurves": 0,
         "save_results": true,
         "batch_size": 8
     }

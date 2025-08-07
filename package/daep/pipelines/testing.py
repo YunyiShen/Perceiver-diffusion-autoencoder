@@ -88,7 +88,7 @@ def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path,
             data_dir=data_path / 'lightcurves' / config["data"]["lightcurve_test_name"], 
             train=False, 
             extract=False,
-            use_uncertainty=config["model"]["use_uncertainty"]
+            use_uncertainty=use_uncertainty
         )
         test_data = TESSGALAHDatasetProcessedSubset(
             num_samples=config["testing"]["num_test_instances"],

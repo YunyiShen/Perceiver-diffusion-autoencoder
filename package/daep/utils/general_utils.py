@@ -101,7 +101,7 @@ def create_model_str(config: Dict[str, Any], data_name: str) -> str:
 
 def create_model_str_classifier(config: Dict[str, Any], data_name: str) -> str:
     base_fmt = (
-        f"{data_name}_{config['model']['bottleneckdim']}-"
+        f"{data_name}_{config['model']['bottlenecklen']}-{config['model']['bottleneckdim']}-"
     )
     if 'classifier_dropout' in config['model']:
         base_fmt += f"classifierdropP{config['model']['classifier_dropout']}_"

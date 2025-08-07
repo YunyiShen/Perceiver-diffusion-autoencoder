@@ -109,6 +109,9 @@ class TESSGALAHDatasetProcessedSubset(TESSGALAHDatasetProcessed):
                  use_uncertainty: bool = False):
         super().__init__(lightcurve_dataset, spectra_dataset, use_uncertainty)
         
+        if num_samples <= 0:
+            num_samples = len(self.catalog)
+        
         # Set the random seed for reproducibility of the subset selection
         np.random.seed(42)
         subset_indices = np.random.choice(len(self.catalog), num_samples, replace=False)
