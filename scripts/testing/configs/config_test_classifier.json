@@ -41,7 +41,7 @@
     },
     "testing": {
         "use_checkpoint_path": true,
-        "checkpoint_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves_classifier/tessv1/TESSlightcurve_classifier_8-8-4-4-128_useUncertaintyFalse_sinposFalse_fourierTrue_concatTrue_crossattnonlyFalse_lr0.001_modaldropP0.2_batch32_reg0.0_aug1_date2025-08-07_14-40/ckpt/epoch_60_date_2025-08-07_14-57.pth",
+        "checkpoint_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves_classifier/tessv1/TESSlightcurve_classifier_16-16-4-4-256_useUncertaintyFalse_sinposFalse_fourierTrue_concatTrue_crossattnonlyFalse_lr2.5e-05_batch32_reg0.0_aug1_date2025-08-07_15-41/ckpt/epoch_515_date_2025-08-07_18-44.pth",
         "num_lightcurves": 0,
         "save_results": true,
         "batch_size": 8

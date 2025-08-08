@@ -1,0 +1,43 @@
+{
+    "env": "remote",
+    "data": {
+        "data_path_local": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/data/",
+        "models_path_local": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/",
+        "data_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/",
+        "models_path_remote": "/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/"
+    },
+    "test_name": "tess_20k",
+    "training": {
+        "epochs": 1000,
+        "lr": 2.5e-4,
+        "batch": 16,
+        "save_every": 10,
+        "aug": 1
+    },
+    "architecture": {
+        "shape": {
+            "bottlenecklen": 16,
+            "bottleneckdim": 16,
+            "model_dim": 256,
+            "encoder_layers": 4,
+            "decoder_layers": 4,
+            "encoder_heads": 4,
+            "decoder_heads": 4
+        },
+        "components": {
+            "concat": true,
+            "cross_attn_only": false,
+            "regularize": 0.00,
+            "sinpos_embed": true,
+            "fourier_embed": false,
+            "use_uncertainty": false
+        }
+    },
+    "testing": {
+        "num_lightcurves": 5,
+        "num_samples": 1,
+        "num_examples": 5,
+        "save_results": true,
+        "batch_size": 8
+    }
+}

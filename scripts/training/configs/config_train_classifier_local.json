@@ -11,7 +11,7 @@
     },
     "training": {
         "epoch": 1000,
-        "lr": 1e-3,
+        "lr": 2.5e-5,
         "batch": 32,
         "save_every": 5,
         "aug": 1
@@ -24,7 +24,7 @@
         
         "use_pretrained_encoder": true,
         "pretrained_encoder_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves/tess_20k/TESSlightcurve_16-16-4-4-4-4-256_useUncertaintyFalse_sinposTrue_fourierTrue_concatTrue_crossattnonlyFalse_lr0.00025_batch16_reg0.0_aug1_date2025-08-07_10-12/ckpt/epoch_150_date_2025-08-07_14-44.pth",
-        "freeze_pretrained_encoder": false
+        "freeze_pretrained_encoder": true
     },
     "model_new_encoder": {
         "bottlenecklen": 8,
@@ -46,8 +46,8 @@
         "dropping_prob": 0.2
     },
     "checkpoint": {
-        "load_checkpoint": false,
-        "checkpoint_path": "/path/to/classifier/checkpoint.pth"
+        "load_checkpoint": true,
+        "checkpoint_path": "/home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves_classifier/tessv1/TESSlightcurve_classifier_16-16-4-4-256_useUncertaintyFalse_sinposFalse_fourierTrue_concatTrue_crossattnonlyFalse_lr2.5e-05_batch32_reg0.0_aug1_date2025-08-07_15-23/ckpt/epoch_25_date_2025-08-07_15-38.pth"
     },
     "distributed": {
         "init_method": "tcp://127.0.0.1:23456",
