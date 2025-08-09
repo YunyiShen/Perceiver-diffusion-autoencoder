@@ -58,7 +58,9 @@ def train(
                  out_middle = [64],
                  selfattn = False, 
                  concat = True,
-                 fourier = True):
+                 fourier = True, 
+                 clip = 6
+                 ):
     
     flux = np.load("../data/tess_variablestar/fluxes_train.npy")
     flux_err = np.load("../data/tess_variablestar/fluxes_errs_train.npy")
@@ -72,7 +74,7 @@ def train(
     # Convert to torch tensor
     labels_tensor = torch.tensor(labels_int, dtype=torch.long)
     
-    mask = np.logical_or(~np.isfinite(flux), flux/flux_err <= 4.)
+    mask = np.logical_or(~np.isfinite(np.arcsinh(flux)), np.abs(flux)/flux_err <= 4.)
     mask = np.logical_or(mask, ~np.isfinite(time))
     
     time[mask] = 1e22
@@ -80,9 +82,11 @@ def train(
     
     
     # per sample normalization, not ideal but if we do global things got super small
-    flux = (flux - np.mean(flux, axis = 1, where = ~mask)[:, None])/(np.std(flux, axis = 1, where = ~mask)[:, None])
+    flux = np.arcsinh(flux)
+    flux = (flux-np.mean(flux, axis = 1, where = ~mask)[:, None])/(np.std(flux, where = ~mask))
+    #flux = (flux - np.mean(flux, axis = 1, where = ~mask)[:, None])/(np.std(flux, axis = 1, where = ~mask)[:, None])
     flux[~np.isfinite(flux)] = 0. # constant cause trouble in the above line
-    flux = np.clip(flux, -6, 6) # sanitize
+    flux = np.clip(flux, -clip, clip) # sanitize
     flux[mask] = 0.
     time[mask] = 0.
     
