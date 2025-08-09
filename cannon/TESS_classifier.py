@@ -45,20 +45,20 @@ class PhotClassifier(nn.Module):
         return self.classifier(z)     # (batch, num_classes)
 
 def train(
-                 bottleneck_dim = 64,
-                 hidden_len = 64,
+                 bottleneck_dim = 128,
+                 hidden_len = 32,
                  model_dim = 128, 
                  num_heads = 8, 
-                 ff_dim = 64,
+                 ff_dim = 256,
                  num_layers = 4,
                  
-                 epochs = 10,
-                 
+                 epochs = 50,
+                 lr = 0.00025, 
                  dropout=0.1,
                  out_middle = [64],
-                 selfattn=False, 
+                 selfattn = False, 
                  concat = True,
-                 fourier = False):
+                 fourier = True):
     
     flux = np.load("../data/tess_variablestar/fluxes_train.npy")
     flux_err = np.load("../data/tess_variablestar/fluxes_errs_train.npy")
@@ -117,7 +117,7 @@ def train(
                  concat,
                  fourier).to(device)
     model.train()
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
     
     for epoch in range(epochs):
         # Training
