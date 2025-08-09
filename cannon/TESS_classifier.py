@@ -52,8 +52,8 @@ def train(
                  ff_dim = 256,
                  num_layers = 4,
                  
-                 epochs = 50,
-                 lr = 0.00025, 
+                 epochs = 100,
+                 lr = 0.0001, 
                  dropout=0.1,
                  out_middle = [64],
                  selfattn = False, 
