@@ -166,7 +166,7 @@ class PerceiverEncoder2stages(nn.Module):
         for transformerblock1, transformerblock2 in zip(self.transformerblocks_input_to_hidden, self.transformerblocks_hidden_to_bottleneck):
             hidden = transformerblock1(hidden, x, context_mask=mask)
             h = transformerblock2(h, hidden)
-        return self.outputfc(out + h)
+        return self.bottleneckfc(out + h)
 
 
 class PerceiverDecoder2stages(nn.Module):
@@ -235,4 +235,15 @@ class PerceiverDecoder2stages(nn.Module):
         return self.outputfc(x + h)
 
 
+class ConcatLinear(nn.Module):
+    def __init__(self, model_dim, bottleneck_dim, bottleneck_length):
+        super().__init__()
+        self.model_dim = model_dim
+        self.bottleneck_dim = bottleneck_dim
+        self.bottleneck_length = bottleneck_length
+        self.fc = nn.Linear(model_dim, bottleneck_dim)
+        
+        
+    def forward(self, x):
+        return self.fc(x)
 

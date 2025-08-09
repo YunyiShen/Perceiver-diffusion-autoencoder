@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from .util_layers import * # useful base layers
-from .Perceiver import PerceiverEncoder, PerceiverDecoder, PerceiverDecoder2stages
+from .Perceiver import PerceiverEncoder, PerceiverDecoder, PerceiverDecoder2stages, PerceiverEncoder2stages
 
 ###############################
 # Transceivers for spectra data
@@ -223,5 +223,63 @@ class spectraTransceiverEncoder(nn.Module):
         x = self.encoder(x, mask)
         return x
         
+# this will generate bottleneck, in encoder
+class spectraTransceiverEncoder2stages(nn.Module):
+    def __init__(self, bottleneck_length,
+                 bottleneck_dim,
+                 hidden_len = 256,
+                 model_dim = 256, 
+                 num_heads = 8, 
+                 num_layers = 4,
+                 ff_dim = 256, 
+                 dropout = 0.1, 
+                 selfattn = False, 
+                 concat = True):
+        '''
+        Transceiver encoder for spectra, with cross attention pooling
+        Args:
+            bottleneck_length: spectra are encoded as a sequence of size [bottleneck_length, bottleneck_dim]
+            bottleneck_dim: spectra are encoded as a sequence of size [bottleneck_length, bottleneck_dim]
+            model_dim: dimension the transformer should operate 
+            num_heads: number of heads in the multiheaded attention
+            ff_dim: dimension of the MLP hidden layer in transformer
+            num_layers: number of transformer blocks
+            dropout: drop out in transformer
+            selfattn: if we want self attention to the given spectra
 
+        '''
+        super(spectraTransceiverEncoder2stages, self).__init__()
+        self.encoder = PerceiverEncoder2stages(bottleneck_length,
+                 bottleneck_dim,
+                 hidden_len,
+                 model_dim, 
+                 num_heads, 
+                 num_layers,
+                 ff_dim, 
+                 dropout, 
+                 selfattn)
+        
+        self.spectraEmbd = spectraEmbedding(model_dim, concat)
+        self.model_dim = model_dim
+        self.bottleneck_length = bottleneck_length
+        self.bottleneck_dim = bottleneck_dim
+
+    def forward(self, x):
+        '''
+        Args:
+            x: a tuple of 
+                flux: flux of the spectra being taken of shape [batch_size, spectra_length]
+                wavelength: wavelength of the spectra being taken [batch_size, spectra_length]
+                phase: phase of the spectra being taken [batch_size, 1]
+                mask: which are not measured [batch_size, spectra_length]
+        Return:
+            Encoded spectra of shape [batch_size, bottleneck_length, bottleneck_dim]
+        '''
+        flux, wavelength, phase, mask = x['flux'], x['wavelength'], x['phase'], x['mask']
+        x = self.spectraEmbd(wavelength, flux, phase)
+        if mask is not None:
+           # add a false at end to account for the added phase embd
+           mask = torch.cat([mask, torch.zeros(mask.shape[0], 1).bool().to(mask.device) ], dim=1)
+        x = self.encoder(x, mask)
+        return x
 
