@@ -22,6 +22,7 @@ from tqdm import tqdm
 def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4, 
           concat = True, cross_attn_only = False,
           model_dim = 128, encoder_layers = 4, 
+          encoder_heads = 4, decoder_heads = 4,
           decoder_layers = 4,regularize = 0.0001, 
           batch = 64, aug = 5, save_every = 20):
     
@@ -59,7 +60,8 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     model_dim = model_dim,
                     ff_dim = model_dim,
                     num_layers = encoder_layers,
-                    concat = concat
+                    concat = concat,
+                    num_heads= encoder_heads
                     ).to(device)
 
     spectraScore = spectraTransceiverScore(
@@ -68,7 +70,8 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     ff_dim = model_dim,
                     num_layers = decoder_layers,
                     concat = concat,
-                    cross_attn_only = cross_attn_only
+                    cross_attn_only = cross_attn_only,
+                    num_heads = decoder_heads
                     ).to(device)
 
 
@@ -95,11 +98,11 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
         if (ep+1) % save_every == 0:
             if target_save is not None:
                 os.remove(target_save)
-            target_save = f"../ckpt/ZTFspectra_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_concat{concat}_corrattnonly{cross_attn_only}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
+            target_save = f"../ckpt/ZTFspectra_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_heads{encoder_heads}-{decoder_heads}_concat{concat}_corrattnonly{cross_attn_only}_lr{lr}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig(f"./logs/ZTFspectra_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_concat{concat}_corrattnonly{cross_attn_only}_lr{lr}_batch{batch}_reg{regularize}_aug{aug}.png")
+            plt.savefig(f"./logs/ZTFspectra_daep_{bottlenecklen}-{bottleneckdim}-{encoder_layers}-{decoder_layers}-{model_dim}_heads{encoder_heads}-{decoder_heads}_concat{concat}_corrattnonly{cross_attn_only}_lr{lr}_batch{batch}_reg{regularize}_aug{aug}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {math.log(this_epoch):.4f}") 
     

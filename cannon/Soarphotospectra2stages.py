@@ -37,9 +37,15 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
           model_dim = 128, encoder_layers = 4, 
           decoder_layers = 4,regularize = 0.000, 
           dropping_prob = 0.2,
-          batch = 64, aug = 1, save_every = 20):
+          batch = 64, aug = 1, save_every = 20, 
+          tokenizer_head = 4,
+          encoder_head = 4,
+          score_head = 4,
+          
+          which_data = "soar"):
+    assert which_data in ["soar", "gemini"]
     
-    data = np.load('../data/soar_dataset_full.npz')
+    data = np.load(f'../data/{which_data}_dataset_full_minphot20_minspec80.npz')
     training_idx = data['training_idx']
     testing_idx = data['testing_idx']
 
@@ -98,7 +104,8 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
             bottleneck_length = spectra_tokens,
             bottleneck_dim = model_dim,
             model_dim = model_dim,
-            ff_dim = model_dim    
+            ff_dim = model_dim,
+            num_heads = tokenizer_head
         ), 
         "photometry": photometricTransceiverEncoder(
             
@@ -106,7 +113,8 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
             bottleneck_length = photometry_tokens,
             bottleneck_dim = model_dim,
             model_dim = model_dim, 
-            ff_dim = model_dim    
+            ff_dim = model_dim,
+            num_heads = tokenizer_head
         )
     }
     
@@ -116,7 +124,7 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     model_dim = model_dim,
                     num_layers = encoder_layers,
                     ff_dim = model_dim,
-                    num_heads = 4,
+                    num_heads = encoder_head,
                     selfattn = mixer_selfattn
     )
     
@@ -127,7 +135,8 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     model_dim = model_dim,
                     ff_dim = model_dim,
                     num_layers = decoder_layers,
-                    concat = concat
+                    concat = concat,
+                    num_heads = score_head
                     ), 
         "photometry": photometricTransceiverScore(
             bottleneck_dim = bottleneckdim,
@@ -135,7 +144,8 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                  model_dim = model_dim,
                  ff_dim = model_dim,
                  num_layers = decoder_layers,
-                 concat = concat
+                 concat = concat,
+                 num_heads = score_head
         )
     }
 
@@ -168,11 +178,11 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
         if (ep+1) % save_every == 0:
             if target_save is not None:
                 os.remove(target_save)
-            target_save = f"../ckpt/SOARphotospectra_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_concat{concat}_mixerselfattn{mixer_selfattn}_lr{lr}_modaldropP{dropping_prob}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
+            target_save = f"../ckpt/{which_data.upper()}photospectra_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_heads{tokenizer_head}-{encoder_head}-{score_head}_concat{concat}_mixerselfattn{mixer_selfattn}_lr{lr}_modaldropP{dropping_prob}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig(f"./logs/SOARphotospectra_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_concat{concat}_mixerselfattn{mixer_selfattn}_lr{lr}_modaldropP{dropping_prob}_batch{batch}_reg{regularize}_aug{aug}.png")
+            plt.savefig(f"./logs/{which_data.upper()}photospectra_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_heads{tokenizer_head}-{encoder_head}-{score_head}_concat{concat}_mixerselfattn{mixer_selfattn}_lr{lr}_modaldropP{dropping_prob}_batch{batch}_reg{regularize}_aug{aug}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {math.log(this_epoch):.4f}") 
     
