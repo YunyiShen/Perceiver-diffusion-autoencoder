@@ -18,96 +18,48 @@ from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessedSubset
 from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessedSubset
 from daep.datasets.TESSGALAHspeclc_dataset import TESSGALAHDatasetProcessedSubset
 
-from daep.utils.train_utils import load_and_update_config
+from daep.utils.general_utils import load_and_update_config
 from daep.utils.test_utils import (load_trained_model, auto_detect_model_path, extract_epoch_from_model_path,
                         create_analysis_directory, plot_results_from_saved, print_evaluation_metrics,
                         calculate_metrics, plot_example_spectra, plot_metrics_summary, save_results,
                         plot_example_lightcurves)
+from daep.LitWrapperAll import daepClassifierUnimodal
+import pytorch_lightning as L
+from daep.datasets.dataloaders import create_dataloader
 
 # Global device variable
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Using device: {device}")
 
 
-def setup_test_data_and_loader(config: Dict[str, Any], data_path: Path, 
-                              test_name: str, batch_size: int, spectra_or_lightcurves: str) -> Tuple[Dataset, DataLoader]:
-    """
-    Set up test dataset and data loader.
+def make_confusion_matrix(model, class_names, device, outputdir):
+    metric = model.conf_matrix.to(device)
+    fig_, ax_ = metric.plot(labels=class_names)
+    plt.savefig(outputdir / 'confusion_matrix.png')
+    plt.close()
+
+def test_save_best_model(top_k_checkpoints, test_loader):
+    best_acc = 0.0
+    best_loss = 0.0
+    best_trainer = None
+    best_model = None
     
-    Parameters
-    ----------
-    config : dict
-        Configuration dictionary
-    data_path : Path
-        Path to data directory
-    test_name : str
-        Name of the test dataset
-    batch_size : int
-        Batch size for data loader
-        
-    Returns
-    -------
-    tuple
-        (test_dataset, test_loader)
-    """
-    print("Loading test dataset...")
-    if 'use_uncertainty' in config["model"]:
-        use_uncertainty = config["model"]["use_uncertainty"]
-    else:
-        use_uncertainty = False
-    
-    if spectra_or_lightcurves == "spectra":
-        
-        test_data = GALAHDatasetProcessedSubset(
-            num_spectra=config["testing"]["num_spectra"], 
-            data_dir=data_path / 'spectra' / test_name, 
-            train=False, 
-            extract=False,
-            use_uncertainty=use_uncertainty
-        )
-        collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=False)
-    elif spectra_or_lightcurves == "lightcurves":
-        test_data = TESSDatasetProcessedSubset(
-            num_lightcurves=config["testing"]["num_lightcurves"], 
-            data_dir=data_path / 'lightcurves' / test_name, 
-            train=False, 
-            extract=False,
-            use_uncertainty=use_uncertainty
-        )
-        collate_fn = padding_collate_fun(supply=['flux', 'time'], mask_by="flux", multimodal=False)
-    elif spectra_or_lightcurves == "both":
-        from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
-        from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
-        spectra_data = GALAHDatasetProcessed(
-            data_dir=data_path / 'spectra' / config["data"]["spectra_test_name"], 
-            train=False, 
-            extract=False,
-            use_uncertainty=use_uncertainty
-        )
-        lightcurve_data = TESSDatasetProcessed(
-            data_dir=data_path / 'lightcurves' / config["data"]["lightcurve_test_name"], 
-            train=False, 
-            extract=False,
-            use_uncertainty=use_uncertainty
-        )
-        test_data = TESSGALAHDatasetProcessedSubset(
-            num_samples=config["testing"]["num_test_instances"],
-            lightcurve_dataset=lightcurve_data,
-            spectra_dataset=spectra_data,
-            use_uncertainty=use_uncertainty
-        )
-        collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'], mask_by="flux", multimodal=True)
-    
-    print("Creating test data loader...")
-    test_loader = DataLoader(
-        test_data, 
-        batch_size=batch_size, 
-        collate_fn=collate_fn,
-        num_workers=config["data_processing"]["num_workers"],
-        pin_memory=config["data_processing"]["pin_memory"]
-    )
-    
-    return test_data, test_loader
+    # Test each of the top 5 models
+    # print('here',top_k_checkpoints)
+    for checkpoint_path in top_k_checkpoints:
+        # print('here')
+        model = daepClassifierUnimodal.load_from_checkpoint(checkpoint_path)
+        trainer = L.Trainer()
+        test = trainer.test(model, test_loader)
+        test_acc = test[0]['test_acc_epoch']
+        test_loss = test[0]['test_loss_epoch']
+        if (test_acc > best_acc) or (test_acc == best_acc and test_loss < best_loss):
+            best_acc = test_acc
+            best_loss = test_loss
+            best_trainer = trainer
+            best_model = model
+    return best_trainer, best_model, best_acc, best_loss
+
 
 def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test_dataset,
                    num_samples: int = 100, spectra_or_lightcurves: str = "spectra",
@@ -132,175 +84,27 @@ def evaluate_model(model: Union[unimodaldaep, multimodaldaep], test_loader, test
     dict
         Dictionary containing predictions, uncertainties, and ground truth
     """
-    model.eval()
-    all_predictions = []
-    all_ground_truth = []
-    all_ground_truth_uncertainties = []
-    all_uncertainties = []
-    all_wavelengths_or_times = []
-    all_test_instance_idxs = []
-    all_star_ids = []
     
-    print("Generating predictions...")
-    with torch.no_grad():
-        for batch in tqdm(test_loader, desc="Generating predictions", unit="batch"):
-            batch = to_device(batch)
-            
-            # Generate multiple samples for uncertainty estimation using diffusion sampling
-            predictions = []
-            if use_uncertainty:
-                predictions_uncertainties = []
-            for _ in range(num_samples):
-                # Use the model's reconstruct method to get actual reconstructions
-                # This samples from the diffusion process to generate reconstructions
-                if isinstance(model, unimodaldaep):
-                    reconstructed = model.reconstruct(batch)
-                elif isinstance(model, multimodaldaep):
-                    alt_modalities_dict = {"spectra": ["spectra"], "lightcurves": ["photometry"], "both": ["spectra", "photometry"]}
-                    input_modalities = alt_modalities_dict[input_modalities]
-                    out_keys = alt_modalities_dict[spectra_or_lightcurves]
-                    
-                    reconstructed = model.reconstruct(batch, condition_keys=input_modalities, out_keys=out_keys)
-                
-                # Handle different return types from the model
-                if use_uncertainty:
-                    if not isinstance(reconstructed, tuple):
-                        raise ValueError(f"Unexpected model output type: {type(reconstructed)}")
-                    pred_flux, pred_flux_uncertainty = reconstructed
-                    pred_flux = pred_flux['flux']
-                elif isinstance(reconstructed, dict) and 'flux' in reconstructed:
-                    # Model returns a dictionary with 'flux' key
-                    pred_flux = reconstructed['flux']
-                elif isinstance(reconstructed, dict) and ('photometry' in reconstructed):
-                    pred_flux = reconstructed['photometry']['flux']
-                elif isinstance(reconstructed, dict) and ('spectra' in reconstructed):
-                    pred_flux = reconstructed['spectra']['flux']
-                elif isinstance(reconstructed, torch.Tensor):
-                    # Model returns a tensor directly
-                    pred_flux = reconstructed
-                else:
-                    raise ValueError(f"Unexpected model output type: {type(reconstructed)}")
-                
-                predictions.append(pred_flux.cpu().numpy())
-                if use_uncertainty:
-                    predictions_uncertainties.append(pred_flux_uncertainty.cpu().numpy())
-            
-            predictions = np.array(predictions)  # Shape: (num_samples, batch_size, seq_len)
-            if use_uncertainty:
-                predictions_uncertainties = np.array(predictions_uncertainties)  # Shape: (num_samples, batch_size, seq_len)
-            
-            # Calculate mean and std across samples
-            pred_mean = np.mean(predictions, axis=0)
-            if use_uncertainty:
-                pred_uncertainty_mean = np.mean(predictions_uncertainties, axis=0)
-            pred_std = np.std(predictions, axis=0)
-            
-            # Get ground truth - handle batch indexing properly
-            try:
-                test_instance_idx = batch['idx'].cpu().numpy()
-            except KeyError:
-                if 'photometry' in batch:
-                    test_instance_idx = batch['photometry']['lightcurve_idx'].cpu().numpy()
-                elif 'spectra' in batch:
-                    test_instance_idx = batch['spectra']['spectra_idx'].cpu().numpy()
-                else:
-                    raise ValueError(f"No 'idx' or 'lightcurve_idx' key in batch")
-            
-            # Get actual spectra or lightcurves for each item in the batch
-            ground_truth_batch = []
-            ground_truth_uncertainties_batch = []
-            wavelengths_or_times_batch = []
-            star_ids_batch = []
-            
-            for i, idx in enumerate(test_instance_idx):
-                if isinstance(test_dataset, GALAHDatasetProcessedSubset):
-                    actual_test_instance = test_dataset.get_actual_spectrum(idx)
-                    wavelengths_or_times_batch.append(actual_test_instance['wavelength'])
-                elif isinstance(test_dataset, TESSDatasetProcessedSubset):
-                    actual_test_instance = test_dataset.get_actual_lightcurve(idx)
-                    wavelengths_or_times_batch.append(actual_test_instance['time'])
-                elif isinstance(test_dataset, TESSGALAHDatasetProcessedSubset):
-                    if spectra_or_lightcurves == "spectra":
-                        actual_test_instance = test_dataset.spectra_dataset.get_actual_spectrum(idx)#.get_actual_data(test_dataset.pre_subset_idx_to_idx(idx))['spectrum']
-                        wavelengths_or_times_batch.append(actual_test_instance['wavelength'])
-                    elif spectra_or_lightcurves == "lightcurves":
-                        actual_test_instance = test_dataset.lightcurve_dataset.get_actual_lightcurve(idx)#.get_actual_data(test_dataset.pre_subset_idx_to_idx(idx))['photometry']
-                        wavelengths_or_times_batch.append(actual_test_instance['time'])
-                ground_truth_batch.append(actual_test_instance['flux'])
-                ground_truth_uncertainties_batch.append(actual_test_instance['flux_errs'])
-                star_ids_batch.append(actual_test_instance['ids'][2])  # sobject_id/TICID is in column 2
-            
-            ground_truth = np.array(ground_truth_batch)
-            ground_truth_uncertainties = np.array(ground_truth_uncertainties_batch)
-            wavelengths_or_times = np.array(wavelengths_or_times_batch)
-            
-            # print(f"Prediction before conversion: {pred_mean}")
-            # Convert prediction to actual flux (undo log10 and normalization)
-            if spectra_or_lightcurves == "spectra":
-                if isinstance(test_dataset, GALAHDatasetProcessedSubset):
-                    pred_mean = test_dataset.unprocess_spectra(flux=pred_mean, idx=test_instance_idx)
-                    if use_uncertainty:
-                        pred_uncertainty_mean = pred_uncertainty_mean * np.repeat(test_dataset._fluxes_stds[test_instance_idx][:, None], pred_std.shape[1], axis=1)
-                elif isinstance(test_dataset, TESSGALAHDatasetProcessedSubset):
-                    pred_mean = test_dataset.spectra_dataset.unprocess_spectra(flux=pred_mean, idx=test_instance_idx)
-                    if use_uncertainty:
-                        pred_uncertainty_mean = pred_uncertainty_mean * np.repeat(test_dataset._fluxes_stds[test_instance_idx][:, None], pred_std.shape[1], axis=1)
-            elif spectra_or_lightcurves == "lightcurves":
-                if isinstance(test_dataset, TESSDatasetProcessedSubset):
-                    unprocessed_predictions = test_dataset.unprocess_lightcurves(idx=test_instance_idx, time=wavelengths_or_times, flux=pred_mean)
-                    if use_uncertainty:
-                        pred_uncertainty_mean = pred_uncertainty_mean * np.repeat(test_dataset._fluxes_stds[test_instance_idx][:, None], pred_std.shape[1], axis=1)
-                elif isinstance(test_dataset, TESSGALAHDatasetProcessedSubset):
-                    unprocessed_predictions = test_dataset.lightcurve_dataset.unprocess_lightcurves(idx=test_instance_idx, time=wavelengths_or_times, flux=pred_mean)
-                    if use_uncertainty:
-                        pred_uncertainty_mean = pred_uncertainty_mean * np.repeat(test_dataset.lightcurve_dataset._fluxes_errs[test_instance_idx][:, None], pred_std.shape[1], axis=1)
-                pred_mean = unprocessed_predictions['flux']
-                wavelengths_or_times = unprocessed_predictions['time']
-            
-            if np.all(pred_std <= 1e-9):
-                pred_std = np.zeros_like(pred_mean)
-            else:
-                # print(f"pred_std: {pred_std}")
-                # print(f"test_dataset._fluxes_stds[test_instance_idx]: {test_dataset._fluxes_stds[test_instance_idx]}")
-                # Duplicate and reshape _fluxes_stds to match pred_std's shape for correct broadcasting
-                pred_std = pred_std * np.repeat(test_dataset._fluxes_stds[test_instance_idx][:, None], pred_std.shape[1], axis=1)
-                # print(f"pred_std after: {pred_std}")
-            # print(f"Prediction after conversion: {pred_mean}")
-            
-            all_test_instance_idxs.append(test_instance_idx)
-            all_predictions.append(pred_mean)
-            all_ground_truth.append(ground_truth)
-            all_ground_truth_uncertainties.append(ground_truth_uncertainties)
-            if use_uncertainty:
-                all_uncertainties.append(pred_uncertainty_mean)
-            else:
-                all_uncertainties.append(pred_std)
-            all_wavelengths_or_times.append(wavelengths_or_times)
-            all_star_ids.extend(star_ids_batch)
+    test_loader = create_dataloader(config, spectra_or_lightcurves, train=False)
+    checkpoint_callback = L.callbacks.ModelCheckpoint(monitor='val_acc', save_top_k=4, mode='max', filename='{epoch:02d}-{val_acc:.2f}') # type: ignore
+
+    # test saved model
+    best_trainer, best_model, best_test_acc, best_test_loss = test_save_best_model(checkpoint_callback.best_k_models, test_loader)
+    print('Test Accuracy:', best_test_acc)
+    print('Test Loss:', best_test_loss)
+
+    # save best model
+    best_trainer.save_checkpoint(config['Training']['output_dir'] / 'LCC_test_acc_' + str(rounded_test_acc) + '.ckpt') # type: ignore
+
+    # make confusion matrix
+    print('Making confusion matrix')
+    make_confusion_matrix(best_model, config['Model']['class_names'], config['Training']['accelerator'], config['Training']['output_dir'])
     
-    # Concatenate all batches
-    predictions = np.concatenate(all_predictions, axis=0)
-    ground_truth = np.concatenate(all_ground_truth, axis=0)
-    ground_truth_uncertainties = np.concatenate(all_ground_truth_uncertainties, axis=0)
-    uncertainties = np.concatenate(all_uncertainties, axis=0)
-    wavelengths_or_times = np.concatenate(all_wavelengths_or_times, axis=0)
-    test_instance_idxs = np.concatenate(all_test_instance_idxs, axis=0)
-    star_ids = all_star_ids
-    
-    results = {
-        'predictions': predictions,
-        'ground_truth': ground_truth,
-        'ground_truth_uncertainties': ground_truth_uncertainties,
-        'uncertainties': uncertainties,
-        'test_instance_idxs': test_instance_idxs,
-        }
-    if spectra_or_lightcurves == "spectra":
-        results['wavelengths'] = wavelengths_or_times
-        results['sobject_ids'] = star_ids
-    elif spectra_or_lightcurves == "lightcurves":
-        results['times'] = wavelengths_or_times
-        results['ticids'] = star_ids
-    return results
+    # if config['Training']['plot_misclassified']:
+    #     # plot misclassified light curves
+    #     print('plotting misclassified curves') 
+    #     plot_misclassified(best_model, config['Training']['output_dir'], config['Model']['class_names'])
+    # print('finished')
 
 
 def evaluate_model_multimodal(model: multimodaldaep, test_loader, test_dataset, num_samples: int = 100,

@@ -1,0 +1,66 @@
+env: local
+
+data:
+  data_path_local: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/data/
+  models_path_local: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/
+  data_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/
+  models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
+
+test_name: galah_1k      # Name of test, to organize models and results
+data_types: [spectra]    # Types of datasets (i.e. spectra, lightcurves)
+data_names: [galah_1k]   # Names of datasets, corresponding to data_types
+
+training:
+  epochs: 100
+  lr: null
+  weight_decay: null
+  batch: 4
+  save_every: null
+  aug: null
+  accelerator: null
+
+unimodal:
+  architecture:
+    shape:
+      bottlenecklen: null
+      bottleneckdim: null
+      model_dim: null
+      encoder_layers: null
+      decoder_layers: null
+      encoder_heads: null
+      decoder_heads: null
+    components:
+      concat: null
+      cross_attn_only: null
+      regularize: null
+      sinpos_embed: null
+      fourier_embed: null
+      use_uncertainty: null
+
+multimodal:
+  architecture:
+    shape:
+      bottlenecklen: null
+      bottleneckdim: null
+      model_dim: null
+      encoder_layers: null
+      decoder_layers: null
+      encoder_heads: null
+      decoder_heads: null
+      spectra_tokens: null
+      photometry_tokens: null
+      dropping_prob: null
+    components:
+      concat: null
+      cross_attn_only: null
+      mixer_selfattn: null
+      regularize: null
+      sinpos_embed: null
+      fourier_embed: null
+
+testing:
+  num_test_instances: null
+  num_samples: null
+  num_examples: null
+  save_results: null
+  batch_size: null 

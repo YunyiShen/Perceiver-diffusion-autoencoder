@@ -182,3 +182,4 @@ ckpt
 *.out
 *.pdf
 TESS-Transformer/
+models_old

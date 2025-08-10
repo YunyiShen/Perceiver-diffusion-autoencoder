@@ -1,0 +1,83 @@
+env: local
+
+data:
+  data_path_local: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/data/
+  models_path_local: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/
+  data_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/
+  models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
+
+training:
+  epochs: 50
+  lr: 2.5e-4
+  weight_decay: 1e-5
+  batch: 4
+  save_every: 5
+  aug: 1
+  accelerator: 'cuda'
+
+unimodal:
+  architecture:
+    classifier:
+      shape:
+        num_classes: 8
+      components:
+        classifier_dropout: 0.1
+        regularize: 0.0
+    encoder:
+      use_pretrained_encoder: true
+      pretrained:
+        pretrained_encoder_path: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves/tess_20k/TESSlightcurve_16-16-4-4-4-4-256_useUncertaintyFalse_sinposTrue_fourierTrue_concatTrue_crossattnonlyFalse_lr0.00025_batch16_reg0.0_aug1_date2025-08-07_10-12/ckpt/epoch_150_date_2025-08-07_14-44.pth
+        pretrained_epoch: -1
+        freeze_pretrained_encoder: true
+      new:
+        shape:
+          bottlenecklen: 16
+          bottleneckdim: 16
+          model_dim: 256
+          encoder_layers: 4
+          encoder_heads: 4
+        components:
+          concat: true
+          cross_attn_only: false
+          regularize: 0.00
+          sinpos_embed: true
+          fourier_embed: false
+
+multimodal:
+  architecture:
+    classifier:
+      shape:
+        num_classes: 8
+        classifier_dropout: 0.1
+        regularize: 0.0
+    encoder:
+      use_pretrained_encoder: true
+      pretrained:
+        pretrained_encoder_path: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/lightcurves/tess_20k/TESSlightcurve_16-16-4-4-4-4-256_useUncertaintyFalse_sinposTrue_fourierTrue_concatTrue_crossattnonlyFalse_lr0.00025_batch16_reg0.0_aug1_date2025-08-07_10-12/ckpt/epoch_150_date_2025-08-07_14-44.pth
+        freeze_pretrained_encoder: true
+      new:
+        shape:
+          bottlenecklen: 16
+          bottleneckdim: 16
+          model_dim: 256
+          encoder_layers: 4
+          decoder_layers: 4
+          encoder_heads: 4
+          decoder_heads: 4
+          spectra_tokens: 256
+          photometry_tokens: 256
+        components:
+          dropping_prob: 0.2
+          concat: true
+          cross_attn_only: false
+          mixer_selfattn: true
+          regularize: 0.00
+          sinpos_embed: true
+          fourier_embed: false
+
+testing:
+  num_lightcurves: 5
+  num_samples: 1
+  num_examples: 5
+  save_results: true
+  batch_size: 8

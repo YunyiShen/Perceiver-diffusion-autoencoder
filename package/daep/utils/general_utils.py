@@ -1,6 +1,8 @@
 from typing import Tuple
 from typing import Dict, Any
 from datetime import datetime
+import json
+from copy import deepcopy
 
 def detect_env() -> str:
     """
@@ -54,7 +56,91 @@ def set_paths(env: str, spectra_or_lightcurve: str) -> Tuple[str, str, str, str]
         raw_data_path = base_path + f"/data/{spectra_or_lightcurve}_raw"
     
     return base_path, model_path, data_path, raw_data_path
-    
+
+def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
+    """
+    Load configuration from a YAML file.
+
+    Parameters
+    ----------
+    config_path : str
+        Path to the configuration YAML file.
+
+    Returns
+    -------
+    Dict[str, Any]
+        Configuration dictionary containing all training parameters.
+
+    Notes
+    -----
+    This function loads a YAML configuration file and sets the appropriate data/model paths
+    based on the 'env' key in the config.
+
+    Examples
+    --------
+    >>> config = load_config("config.yaml")
+    >>> print(config["training"]["epochs"])
+    """
+    import yaml
+    from pathlib import Path
+
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        # Set data/model paths based on environment
+        if config["env"] == "local":
+            config["data"]["data_path"] = config["data"]["data_path_local"]
+            config["data"]["models_path"] = config["data"]["models_path_local"]
+        elif config["env"] == "remote":
+            config["data"]["data_path"] = config["data"]["data_path_remote"]
+            config["data"]["models_path"] = config["data"]["models_path_remote"]
+        else:
+            raise ValueError(f"Invalid environment: {config['env']}; environment must be either 'local' or 'remote'")
+
+        return config
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Configuration file '{config_path}' not found.")
+    except yaml.YAMLError as e:
+        raise RuntimeError(f"Invalid YAML in configuration file: {e}")
+
+    # Added: switched from JSON to YAML for config loading, using yaml.safe_load for security.
+    # Added: updated docstring to reflect YAML usage.
+
+def update_config(base_config: Dict[str, Any], additional_config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deep-merge ``additional_config`` into ``base_config`` (recursive for nested dicts).
+    Values that are ``None`` in ``additional_config`` are ignored and do not overwrite.
+
+    Parameters
+    ----------
+    base_config : Dict[str, Any]
+        Base configuration.
+    additional_config : Dict[str, Any]
+        Updates to apply.
+
+    Returns
+    -------
+    Dict[str, Any]
+        New merged configuration. Inputs are not mutated.
+    """
+
+    def merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+        out = deepcopy(a)
+        for k, v in b.items():
+            if isinstance(v, dict) and isinstance(out.get(k), dict):
+                out[k] = merge(out[k], v)  # type: ignore[index]
+            elif isinstance(v, dict):
+                # Base is not a dict (or missing); accept the new nested dict
+                out[k] = deepcopy(v)
+            elif v is not None:
+                # Only overwrite when update value is not None
+                out[k] = deepcopy(v)
+            # else: v is None → skip, keep base value
+        return out
+
+    return merge(base_config, additional_config)
+
 def convert_to_native_byte_order(df):
     for col in df.columns:
         col_data = df[col]

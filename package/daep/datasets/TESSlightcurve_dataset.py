@@ -21,7 +21,7 @@ TEST_NAME = 'tess_1k'
 
 class TESSDataset(Dataset):
     
-    def __init__(self, data_dir: Path, train: bool, extract: bool = True, use_uncertainty: bool = False,
+    def __init__(self, data_dir: Path, train: bool, extract: bool = True,
                  raw_data_dir: Optional[Path] = None, tess_xmatch_catalog_path: Optional[Path] = None,
                  targets_path: Optional[Path] = None):
         self.data_dir = data_dir
@@ -30,7 +30,6 @@ class TESSDataset(Dataset):
         self.train = train
         # Size of GALAH lightcurve
         self.seq_len = 1171
-        self.use_uncertainty = use_uncertainty
         self._set_legacy_data_paths()
         if extract:
             self.extract_data(raw_data_dir, tess_xmatch_catalog_path, targets_path) 
@@ -334,10 +333,10 @@ class TESSDataset(Dataset):
             }
 
 class TESSDatasetProcessed(TESSDataset):
-    def __init__(self, data_dir: Path, train: bool, extract: bool = False, use_uncertainty: bool = False,
+    def __init__(self, data_dir: Path, train: bool, extract: bool = False,
                  raw_data_dir: Optional[Path] = None, tess_xmatch_catalog_path: Optional[Path] = None,
                  targets_path: Optional[Path] = None):
-        super().__init__(data_dir, train, extract, use_uncertainty, raw_data_dir, tess_xmatch_catalog_path, targets_path)
+        super().__init__(data_dir, train, extract, raw_data_dir, tess_xmatch_catalog_path, targets_path)
         
         # Process the lightcurves (normalize w/ mean and std)
         self.process_lightcurves()
@@ -355,13 +354,11 @@ class TESSDatasetProcessed(TESSDataset):
             print(f"All NaN lightcurve at index {idx}")
         
         res = {"flux": self.fluxes_normalized[idx],
+               "flux_err": self.fluxes_errs_normalized[idx],
                "time": self.times_normalized[idx],
                'starclass': torch.tensor(self.starclass[idx]),
             #    "mask": ~torch.isnan(self.fluxes_normalized[idx]),   # THIS BREAKS THE TRAINING -> loss NaN on epoch 1
                "idx": torch.tensor(idx)}
-        
-        if self.use_uncertainty:
-            res['flux_err'] = self.fluxes_errs_normalized[idx]
         
         return res
     
@@ -535,10 +532,10 @@ class TESSDatasetProcessed(TESSDataset):
 
 
 class TESSDatasetProcessedSubset(TESSDatasetProcessed):
-    def __init__(self, num_lightcurves: int, data_dir: Path, train: bool, extract: bool = False, use_uncertainty: bool = False,
+    def __init__(self, num_lightcurves: int, data_dir: Path, train: bool, extract: bool = False,
                  raw_data_dir: Optional[Path] = None, tess_xmatch_catalog_path: Optional[Path] = None,
                  targets_path: Optional[Path] = None):
-        super().__init__(data_dir, train, extract, use_uncertainty, raw_data_dir, tess_xmatch_catalog_path, targets_path)
+        super().__init__(data_dir, train, extract, raw_data_dir, tess_xmatch_catalog_path, targets_path)
         
         if num_lightcurves <= 0:
             num_lightcurves = len(self.fluxes) - 1

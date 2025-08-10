@@ -4,6 +4,7 @@ conda install pytorch -c https://ftp.osuosl.org/pub/open-ce/current
 conda install torchvision -c https://ftp.osuosl.org/pub/open-ce/current
 conda install tqdm matplotlib h5py astropy scikit-learn -y
 pip install fire
+pip install -U 'tensorboard'
 
 cd package
 pip install -e .
