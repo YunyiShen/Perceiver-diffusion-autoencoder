@@ -1,0 +1,10 @@
+env: local
+
+testing:  
+  # Override with model directory (containing ./checkpoints and ./hparams.yaml)
+  model_dir: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tess_1k/daep_reconstructor_unimodal_lightcurves/dim_16-16-4-4-4-4-256_uncertFalse_concatTrue_sinposTrue_fourierFalse_lr0.00025_weight_decay1e-5_date2025-08-11_12-22
+  num_test_instances: 5
+  num_samples: null
+  num_examples: 5
+  save_results: null
+  batch: 8

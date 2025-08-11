@@ -56,6 +56,9 @@ class daepReconstructorUnimodal(daepReconstructor):
         self.architecture_config = config['unimodal']['architecture']
         self.training_config = config['training']
         
+        self.predict_input_modalities = _convert_modalities(tuple([self.data_type]))
+        self.predict_output_modality = _convert_modalities(self.data_type)
+        
         architecture_config = self.architecture_config
         if self.data_type == "spectra":
             encoder = spectraTransceiverEncoder(
@@ -122,18 +125,60 @@ class daepReconstructorUnimodal(daepReconstructor):
             pred_flux_uncertainty = np.zeros(pred_flux.shape)
         return {'flux': pred_flux, 'flux_uncertainty': pred_flux_uncertainty}
     
+    def set_prediction_modalities(self, input_modalities: list[str], output_modality: str):
+        """
+        Configure predict-time modalities.
+
+        Parameters
+        ----------
+        input_modalities : {'spectra','lightcurres','both'} or list[str]
+            Conditioning modalities.
+        output_modality : {'spectra','lightcurves'}
+            Target modality to reconstruct.
+        """
+        input_modalities = _convert_modalities(input_modalities)
+        output_modality = _convert_modalities(output_modality)
+        if input_modalities != self.predict_input_modalities or output_modality != self.predict_output_modality:
+            raise ValueError("Input or output modalities cannot be changed for unimodal models")
+
+    def predict_step(self, batch, batch_idx: int, dataloader_idx: int = 0):
+        """
+        Predict-step for Lightning predict loop. Reads self.predict_input_modalities
+        and self.predict_output_modality to produce a single-modality output that
+        UnprocessPredictionWriter can parse.
+
+        Returns
+        -------
+        dict
+            {'spectra': {'flux': ...}} or {'photometry': {'flux': ...}}
+            (If you later enable uncertainties, return a tuple of
+            (flux_dict, flux_err_dict) for the writer.)
+        """
+        # Defaults if not set
+        try:
+            input_modalities = self.predict_input_modalities
+            output_modality = self.predict_output_modality
+        except AttributeError:
+            raise ValueError("Predict-time modalities not set. Call set_prediction_modalities() before predict_step()")
+
+        # Use wrapper's reconstruct to honor your existing API
+        predictions = self.reconstruct(batch)
+
+        # Wrap for UnprocessPredictionWriter
+        return predictions
+    
     def model_name(self):
         return f"daep_reconstructor_unimodal_{self.data_type}"
     
     def model_instance_str(self):
         model_str = f"dim_"
-        model_str += f"bottlenecklen{self.architecture_config['shape']['bottlenecklen']}-"
-        model_str += f"bottleneckdim{self.architecture_config['shape']['bottleneckdim']}-"
-        model_str += f"encoder_layers{self.architecture_config['shape']['encoder_heads']}-"
-        model_str += f"encoder_heads{self.architecture_config['shape']['decoder_heads']}-"
-        model_str += f"decoder_layers{self.architecture_config['shape']['encoder_layers']}-"
-        model_str += f"decoder_heads{self.architecture_config['shape']['decoder_layers']}-"
-        model_str += f"model_dim{self.architecture_config['shape']['model_dim']}_"
+        model_str += f"{self.architecture_config['shape']['bottlenecklen']}-"
+        model_str += f"{self.architecture_config['shape']['bottleneckdim']}-"
+        model_str += f"{self.architecture_config['shape']['encoder_heads']}-"
+        model_str += f"{self.architecture_config['shape']['decoder_heads']}-"
+        model_str += f"{self.architecture_config['shape']['encoder_layers']}-"
+        model_str += f"{self.architecture_config['shape']['decoder_layers']}-"
+        model_str += f"{self.architecture_config['shape']['model_dim']}_"
         
         model_str += f"uncert{self.architecture_config['components']['use_uncertainty']}_"
         model_str += f"concat{self.architecture_config['components']['concat']}_"
@@ -227,34 +272,71 @@ class daepReconstructorMultimodal(daepReconstructor):
         if 'use_uncertainty' in self.architecture_config['components'] and self.architecture_config['components']['use_uncertainty']:
             raise ValueError("Use uncertainty is not supported for multimodal models")
 
-    def reconstruct(self, x, input_modalities, output_modalities):
-        alt_modalities_dict = {"spectra": ["spectra"], "lightcurves": ["photometry"],
-                               "both": ["spectra", "photometry"], ["spectra", "photometry"]: ["spectra", "photometry"]}
-        input_modalities = alt_modalities_dict[input_modalities]
-        output_modalities = alt_modalities_dict[output_modalities]
-        reconstructed = self.model.reconstruct(x, condition_keys=input_modalities, out_keys=output_modalities)
-        
-        if 'photometry' in reconstructed:
-            pred_flux = reconstructed['photometry']['flux']
-        elif 'spectra' in reconstructed:
-            pred_flux = reconstructed['spectra']['flux']
-        
-        return pred_flux
+    def reconstruct(self, x, input_modalities: list[str], output_modality: str):
+        reconstructed = self.model.reconstruct(x, condition_keys=input_modalities, out_keys=[output_modality])
+        if self.architecture_config['components']['use_uncertainty']:
+            pred_flux, pred_flux_uncertainty = reconstructed
+            pred_flux = pred_flux['flux']
+        else:
+            pred_flux = reconstructed['flux']
+            pred_flux_uncertainty = np.zeros(pred_flux.shape)
+        return {'flux': pred_flux, 'flux_uncertainty': pred_flux_uncertainty}
+    
+    def set_prediction_modalities(self, input_modalities: list[str], output_modality: str):
+        """
+        Configure predict-time modalities.
+
+        Parameters
+        ----------
+        input_modalities : {'spectra','lightcurres','both'} or list[str]
+            Conditioning modalities.
+        output_modality : {'spectra','lightcurves'}
+            Target modality to reconstruct.
+        """
+        self.predict_input_modalities = _convert_modalities(input_modalities)
+        self.predict_output_modality = _convert_modalities(output_modality)
+
+    def predict_step(self, batch, batch_idx: int, dataloader_idx: int = 0):
+        """
+        Predict-step for Lightning predict loop. Reads self.predict_input_modalities
+        and self.predict_output_modality to produce a single-modality output that
+        UnprocessPredictionWriter can parse.
+
+        Returns
+        -------
+        dict
+            {'spectra': {'flux': ...}} or {'photometry': {'flux': ...}}
+            (If you later enable uncertainties, return a tuple of
+            (flux_dict, flux_err_dict) for the writer.)
+        """
+        # Defaults if not set
+        try:
+            input_modalities = self.predict_input_modalities
+            output_modality = self.predict_output_modality
+        except AttributeError:
+            raise ValueError("Predict-time modalities not set. Call set_prediction_modalities() before predict_step()")
+
+        # Use wrapper's reconstruct to honor your existing API
+        predictions = self.reconstruct(batch,
+                                       input_modalities=input_modalities,
+                                       output_modality=output_modality)
+
+        return predictions
     
     def model_name(self):
         return f"daep_reconstructor_multimodal_spectra_lightcurves"
     
     def model_instance_str(self):
         model_str = f"dim_"
-        model_str += f"bottlenecklen{self.architecture_config['shape']['bottlenecklen']}-"
-        model_str += f"bottleneckdim{self.architecture_config['shape']['bottleneckdim']}-"
-        model_str += f"encoder_layers{self.architecture_config['shape']['encoder_heads']}-"
-        model_str += f"encoder_heads{self.architecture_config['shape']['decoder_heads']}-"
-        model_str += f"decoder_layers{self.architecture_config['shape']['encoder_layers']}-"
-        model_str += f"decoder_heads{self.architecture_config['shape']['decoder_layers']}-"
-        model_str += f"model_dim{self.architecture_config['shape']['model_dim']}-"
-        model_str += f"spectra_tokens{self.architecture_config['shape']['spectra_tokens']}-"
-        model_str += f"photometry_tokens{self.architecture_config['shape']['photometry_tokens']}_"
+        model_str += f"{self.architecture_config['shape']['bottlenecklen']}-"
+        model_str += f"{self.architecture_config['shape']['bottleneckdim']}-"
+        model_str += f"{self.architecture_config['shape']['encoder_heads']}-"
+        model_str += f"{self.architecture_config['shape']['decoder_heads']}-"
+        model_str += f"{self.architecture_config['shape']['encoder_layers']}-"
+        model_str += f"{self.architecture_config['shape']['decoder_layers']}-"
+        model_str += f"{self.architecture_config['shape']['model_dim']}-"
+        model_str += f"{self.architecture_config['shape']['spectra_tokens']}-"
+        model_str += f"{self.architecture_config['shape']['photometry_tokens']}_"
         
         model_str += f"modaldropP{self.architecture_config['components']['dropping_prob']}_"
         model_str += f"concat{self.architecture_config['components']['concat']}_"
@@ -459,11 +541,11 @@ class daepClassifierUnimodal(daepClassifier):
         model_str = f"dim_"
         
         # Classifier and encoder shape parameters
-        model_str += f"bottlenecklen{self.architecture_config['classifier']['shape']['bottlenecklen']}-"
-        model_str += f"bottleneckdim{self.architecture_config['classifier']['shape']['bottleneckdim']}-"
-        model_str += f"encoder_layers{self.architecture_config['encoder']['new']['shape']['encoder_layers']}-"
-        model_str += f"encoder_heads{self.architecture_config['encoder']['new']['shape']['encoder_heads']}-"
-        model_str += f"model_dim{self.architecture_config['encoder']['new']['shape']['model_dim']}_"
+        model_str += f"{self.architecture_config['classifier']['shape']['bottlenecklen']}-"
+        model_str += f"{self.architecture_config['classifier']['shape']['bottleneckdim']}-"
+        model_str += f"{self.architecture_config['encoder']['new']['shape']['encoder_layers']}-"
+        model_str += f"{self.architecture_config['encoder']['new']['shape']['encoder_heads']}-"
+        model_str += f"{self.architecture_config['encoder']['new']['shape']['model_dim']}_"
         
         # Classifier-specific parameters
         model_str += f"classifier_dropout{self.architecture_config['classifier']['components']['classifier_dropout']}-"
@@ -632,13 +714,13 @@ class daepClassifierMultimodal(daepClassifier):
         model_str = f"dim_"
         
         # Classifier and encoder shape parameters
-        model_str += f"bottlenecklen{self.architecture_config['classifier']['shape']['bottlenecklen']}-"
-        model_str += f"bottleneckdim{self.architecture_config['classifier']['shape']['bottleneckdim']}-"
-        model_str += f"encoder_layers{self.architecture_config['encoder']['new']['shape']['encoder_layers']}-"
-        model_str += f"encoder_heads{self.architecture_config['encoder']['new']['shape']['encoder_heads']}-"
-        model_str += f"model_dim{self.architecture_config['encoder']['new']['shape']['model_dim']}_"
-        model_str += f"spectra_tokens{self.architecture_config['encoder']['new']['shape']['spectra_tokens']}-"
-        model_str += f"photometry_tokens{self.architecture_config['encoder']['new']['shape']['photometry_tokens']}-"
+        model_str += f"{self.architecture_config['classifier']['shape']['bottlenecklen']}-"
+        model_str += f"{self.architecture_config['classifier']['shape']['bottleneckdim']}-"
+        model_str += f"{self.architecture_config['encoder']['new']['shape']['encoder_layers']}-"
+        model_str += f"{self.architecture_config['encoder']['new']['shape']['encoder_heads']}-"
+        model_str += f"{self.architecture_config['encoder']['new']['shape']['model_dim']}_"
+        model_str += f"{self.architecture_config['encoder']['new']['shape']['spectra_tokens']}-"
+        model_str += f"{self.architecture_config['encoder']['new']['shape']['photometry_tokens']}-"
         
         # Classifier-specific parameters
         model_str += f"classifier_dropout{self.architecture_config['classifier']['components']['classifier_dropout']}-"
@@ -664,4 +746,12 @@ class daepClassifierMultimodal(daepClassifier):
         
         return model_str
         
-        
+
+def _convert_modalities(modalities: list[str]) -> list[str]:
+    mapping = {"spectra": "spectra", "lightcurves": "photometry"}
+    if isinstance(modalities, str):
+        return mapping[modalities]
+    elif isinstance(modalities, tuple):
+        return tuple([mapping[modality] for modality in modalities])
+    else:
+        raise ValueError(f"Invalid modalities type: {type(modalities)}")

@@ -3,6 +3,7 @@ from typing import Dict, Any
 from datetime import datetime
 import json
 from copy import deepcopy
+from pathlib import Path
 
 def detect_env() -> str:
     """
@@ -26,7 +27,6 @@ def detect_env() -> str:
     'local'
     """
     import os
-    from pathlib import Path
 
     # Check for SLURM environment variable (common on HPC clusters)
     if "SLURM_JOB_ID" in os.environ:
@@ -57,7 +57,7 @@ def set_paths(env: str, spectra_or_lightcurve: str) -> Tuple[str, str, str, str]
     
     return base_path, model_path, data_path, raw_data_path
 
-def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
+def load_config(config_path: str | Path = "config.yaml") -> Dict[str, Any]:
     """
     Load configuration from a YAML file.
 
@@ -82,21 +82,21 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
     >>> print(config["training"]["epochs"])
     """
     import yaml
-    from pathlib import Path
 
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
 
         # Set data/model paths based on environment
-        if config["env"] == "local":
-            config["data"]["data_path"] = config["data"]["data_path_local"]
-            config["data"]["models_path"] = config["data"]["models_path_local"]
-        elif config["env"] == "remote":
-            config["data"]["data_path"] = config["data"]["data_path_remote"]
-            config["data"]["models_path"] = config["data"]["models_path_remote"]
-        else:
-            raise ValueError(f"Invalid environment: {config['env']}; environment must be either 'local' or 'remote'")
+        if "data" in config:
+            if config["env"] == "local":
+                config["data"]["data_path"] = config["data"]["data_path_local"]
+                config["data"]["models_path"] = config["data"]["models_path_local"]
+            elif config["env"] == "remote":
+                config["data"]["data_path"] = config["data"]["data_path_remote"]
+                config["data"]["models_path"] = config["data"]["models_path_remote"]
+            else:
+                raise ValueError(f"Invalid environment: {config['env']}; environment must be either 'local' or 'remote'")
 
         return config
     except FileNotFoundError:
@@ -139,7 +139,20 @@ def update_config(base_config: Dict[str, Any], additional_config: Dict[str, Any]
             # else: v is None → skip, keep base value
         return out
 
-    return merge(base_config, additional_config)
+    new_config = merge(base_config, additional_config)
+    
+    # Set data/model paths based on environment
+    if "data" in new_config:
+            if new_config["env"] == "local":
+                new_config["data"]["data_path"] = new_config["data"]["data_path_local"]
+                new_config["data"]["models_path"] = new_config["data"]["models_path_local"]
+            elif new_config["env"] == "remote":
+                new_config["data"]["data_path"] = new_config["data"]["data_path_remote"]
+                new_config["data"]["models_path"] = new_config["data"]["models_path_remote"]
+            else:
+                raise ValueError(f"Invalid environment: {new_config['env']}; environment must be either 'local' or 'remote'")
+    return new_config
+
 
 def convert_to_native_byte_order(df):
     for col in df.columns:

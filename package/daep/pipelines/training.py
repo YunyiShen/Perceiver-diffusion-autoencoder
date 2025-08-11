@@ -10,7 +10,7 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import pytorch_lightning as L
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import CSVLogger
 
 from matplotlib import pyplot as plt
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -48,40 +48,73 @@ def initialize_model(model_type, data_types, config):
     return model
 
 class LossLogger(L.Callback):
+    """
+    Callback to record and plot epoch-level training/validation loss.
+
+    Notes
+    -----
+    - Uses TensorBoard logger's directory as output path.
+    - Plots are saved once per validation epoch on global rank 0.
+    """
+
     def __init__(self):
+        self.train_loss = []
         self.val_loss = []
         self.output_dir = None
 
     def on_fit_start(self, trainer, pl_module):
         """Initialize output directory when training starts."""
-        # Get the log directory from the trainer's logger and convert to Path
+        # Resolve TensorBoard log directory and ensure it exists
         self.output_dir = Path(trainer.logger.log_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def on_validation_end(self, trainer, pl_module):
-        """Log validation loss and update plot after each validation epoch."""
-        # Append the current validation loss
-        self.val_loss.append(trainer.callback_metrics['val_loss'].item())
-        # Update the plot after each validation epoch
-        self.plot_val_loss()
-
-    def plot_val_loss(self):
-        """Create and save the validation loss plot."""
-        if len(self.val_loss) == 0:
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """
+        After each validation epoch, read aggregated epoch metrics and update the plot.
+        """
+        # Skip Lightning's sanity validation
+        if getattr(trainer, "sanity_checking", False):
             return
-        epochs = range(1, len(self.val_loss) + 1)
-        # Create the plot
+        # Only save from global rank 0 in DDP
+        if getattr(trainer, "global_rank", 0) != 0:
+            return
+
+        metrics = trainer.callback_metrics
+        train_epoch = metrics.get("train_loss")
+        val_epoch = metrics.get("val_loss")
+        self.train_loss.append(float(train_epoch))
+        self.val_loss.append(float(val_epoch))
+
+        self.plot_loss()
+
+    def plot_loss(self):
+        """Create and save the loss plot."""
+        if not self.train_loss or not self.val_loss:
+            return
+        
+        if np.all(np.array(self.train_loss) > 0) or np.all(np.array(self.val_loss) > 0):
+            train_loss = [math.log(loss) for loss in self.train_loss]
+            val_loss = [math.log(loss) for loss in self.val_loss]
+            loss_label = 'Log-Loss'
+        else:
+            train_loss = self.train_loss
+            val_loss = self.val_loss
+            loss_label = 'Loss'
+        
+        epochs = range(1, len(self.train_loss) + 1)
         plt.figure(figsize=(10, 6))
-        plt.plot(epochs, self.val_loss, 'b-', linewidth=2, label='Validation loss')
-        plt.title('Validation Loss During Training', fontsize=14, fontweight='bold')
+        plt.plot(epochs, train_loss, 'r-', linewidth=2, label=f'Training {loss_label}')
+        plt.plot(epochs, val_loss, 'b-', linewidth=2, label=f'Validation {loss_label}')
         plt.xlabel('Epochs', fontsize=12)
-        plt.ylabel('Loss', fontsize=12)
+        plt.ylabel(f'Training and Validation {loss_label}', fontsize=12)
         plt.legend(fontsize=12)
         plt.grid(True, alpha=0.3)
-        plt.savefig(self.output_dir / 'val_loss.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.output_dir / 'loss.png', dpi=300, bbox_inches='tight')
         plt.close()
 
 class AccuracyLogger(L.Callback):
     def __init__(self):
+        self.train_acc = []
         self.val_acc = []
         self.output_dir = None
 
@@ -90,27 +123,39 @@ class AccuracyLogger(L.Callback):
         # Get the log directory from the trainer's logger and convert to Path
         self.output_dir = Path(trainer.logger.log_dir)
 
-    def on_validation_end(self, trainer, pl_module):
-        """Log validation accuracy and update plot after each validation epoch."""
-        # Append the current validation accuracy
-        self.val_acc.append(trainer.callback_metrics['val_acc'].item())
-        # Update the plot after each validation epoch
-        self.plot_val_acc()
-
-    def plot_val_acc(self):
-        """Create and save the validation accuracy plot."""
-        if len(self.val_acc) == 0:
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """
+        After each validation epoch, read aggregated epoch metrics and update the plot.
+        """
+        # Skip Lightning's sanity validation
+        if getattr(trainer, "sanity_checking", False):
             return
-        epochs = range(1, len(self.val_acc) + 1)
-        # Create the plot
+        # Only save from global rank 0 in DDP
+        if getattr(trainer, "global_rank", 0) != 0:
+            return
+
+        metrics = trainer.callback_metrics
+        train_epoch = metrics.get("train_acc")
+        val_epoch = metrics.get("val_acc")
+        self.train_acc.append(float(train_epoch))
+        self.val_acc.append(float(val_epoch))
+
+        self.plot_acc()
+
+    def plot_acc(self):
+        """Create and save the accuracy plot."""
+        if not self.train_acc or not self.val_acc:
+            return
+        
+        epochs = range(1, len(self.train_acc) + 1)
         plt.figure(figsize=(10, 6))
-        plt.plot(epochs, self.val_acc, 'b-', linewidth=2, label='Validation accuracy')
-        plt.title('Validation Accuracy During Training', fontsize=14, fontweight='bold')
+        plt.plot(epochs, self.train_acc, 'r-', linewidth=2, label=f'Training Accuracy')
+        plt.plot(epochs, self.val_acc, 'b-', linewidth=2, label=f'Validation Accuracy')
         plt.xlabel('Epochs', fontsize=12)
-        plt.ylabel('Accuracy', fontsize=12)
+        plt.ylabel(f'Training and Validation Accuracy', fontsize=12)
         plt.legend(fontsize=12)
         plt.grid(True, alpha=0.3)
-        plt.savefig(self.output_dir / 'val_acc.png', dpi=300, bbox_inches='tight')
+        plt.savefig(self.output_dir / 'acc.png', dpi=300, bbox_inches='tight')
         plt.close()
 
 def train_worker(model, training_loader, validation_loader, config, output_dir, world_size):
@@ -130,11 +175,11 @@ def train_worker(model, training_loader, validation_loader, config, output_dir, 
     """
     
     # Initialize logger
-    logger = TensorBoardLogger(output_dir, name=model.model_name(), version=model.model_instance_str())
+    logger = CSVLogger(output_dir, name=model.model_name(), version=model.model_instance_str())
 
     # Initialize callbacks
-    eval_metric = 'val_acc' if isinstance(model, daepClassifierUnimodal) or isinstance(model, daepClassifierMultimodal) else 'val_loss'
-    checkpoint_callback = L.callbacks.ModelCheckpoint(monitor=eval_metric, save_top_k=4, mode='max', filename='{epoch:02d}-{val_acc:.2f}') # type: ignore
+    eval_metric = 'val_loss'
+    checkpoint_callback = L.callbacks.ModelCheckpoint(monitor=eval_metric, save_top_k=4, mode='min', filename='{epoch:02d}-{val_loss:.2f}') # type: ignore
     accuracy_logger = AccuracyLogger()
     loss_logger = LossLogger()
     if isinstance(model, daepClassifierUnimodal) or isinstance(model, daepClassifierMultimodal):
@@ -181,11 +226,14 @@ def train(config_path: str, model_type: str, **kwargs):
     if "TORCH_DISTRIBUTED_DEBUG" not in os.environ:
         os.environ["TORCH_DISTRIBUTED_DEBUG"] = "INFO"
     
+    L.seed_everything(42, workers=True)
+    
     if ENV == "local":
         config_path_obj = Path(config_path)
         config_path = str(config_path_obj.with_name(config_path_obj.stem + '_local' + config_path_obj.suffix))
     
     # Load configuration
+    print(f"Loading configuration from {config_path}")
     if model_type == 'reconstructor':
         default_config_path = DEFAULT_CONFIGS_DIR / "config_reconstruction_default.yaml"
     elif model_type == 'classifier':

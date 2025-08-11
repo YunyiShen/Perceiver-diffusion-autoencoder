@@ -1,4 +1,4 @@
-env: local
+env: remote
 
 data:
   data_path_local: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/data/
@@ -6,16 +6,15 @@ data:
   data_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/
   models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
 
-model_type: null
-test_name: galah_1k      # Name of test, to organize models and results
+test_name: galah_20k      # Name of test, to organize models and results
 data_types: [spectra]    # Types of datasets (i.e. spectra, lightcurves)
-data_names: [galah_1k]   # Names of datasets, corresponding to data_types
+data_names: [galah_20k]   # Names of datasets, corresponding to data_types
 
 training:
-  epochs: 100
+  epochs: 300
   lr: null
   weight_decay: null
-  batch: 4
+  batch: 16
   save_every: null
   aug: null
   accelerator: null

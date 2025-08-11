@@ -6,6 +6,7 @@ data:
   data_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/
   models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
 
+model_type: reconstructor
 test_name: null      # Override with name of test, to organize models and results
 data_types: null     # Override with types of datasets (i.e. spectra, lightcurves)
 data_names: null     # Override with names of datasets, corresponding to data_types
@@ -59,8 +60,9 @@ multimodal:
       fourier_embed: false
 
 testing:
-  num_test_instances: 5
+  model_dir: null   # Override with model directory (containing ./checkpoints and ./hparams.yaml)
+  num_test_instances: -1
   num_samples: 1
   num_examples: 5
   save_results: true
-  batch_size: 8 
+  batch: 8 

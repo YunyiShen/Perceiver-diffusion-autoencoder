@@ -1,14 +1,15 @@
 #!/bin/bash
 
-#SBATCH -J train_tessgalah_20k
-#SBATCH -o train_tessgalah_20k_%j.out
-#SBATCH -e train_tessgalah_20k_%j.err
+#SBATCH -J train_galah_20k
+#SBATCH -o train_galah_20k_%j.out
+#SBATCH -e train_galah_20k_%j.err
 #SBATCH --gres=gpu:4
 #SBATCH --gpus-per-node=4
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=4
 #SBATCH --mem=0
 #SBATCH --time=10:00:00
+#SBATCH --exclusive
 
 # Load CUDA module (needed for some dependencies)
 module load cuda/11.8
@@ -56,4 +57,4 @@ echo "CPUINFO_ARCH_NAME: $CPUINFO_ARCH_NAME"
 
 # Run the dataset creation script
 cd training
-python TESSGALAHspeclc_train.py --config_path config_train_tessgalah.json
+srun python training_script.py --config_path configs/config_reconstruction.yaml     

@@ -13,7 +13,7 @@ from daep.daep import unimodaldaep, multimodaldaep
 from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessedSubset
 from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessedSubset
 from daep.utils.general_utils import create_model_str, create_model_str_classifier
-from daep.utils.plot_utils import plot_spectra_simple  # type: ignore
+from daep.utils.plot_utils import plot_spectra_simple, plot_lightcurve_simple
 
 def extract_epoch_from_model_path(model_path: str) -> str:
     """
@@ -251,9 +251,9 @@ def load_trained_model(model_path: Path, device: torch.device, config: Dict[str,
     return model
 
 
-def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional[list] = None, output_modalities: Optional[list] = None) -> Dict[str, float]:
+def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: list, output_modalities: list) -> Dict[str, float]:
     """
-    Calculate evaluation metrics for the model predictions.
+    Calculate evaluation metrics for the model predictions for all input-output modality combinations.
     
     Parameters
     ----------
@@ -267,10 +267,10 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
             Ground truth measurement uncertainties
         - uncertainties : np.ndarray
             Model prediction uncertainties
-    input_modalities : list, optional
-        List of input modalities for multimodal models
-    output_modalities : list, optional
-        List of output modalities for multimodal models
+    input_modalities : list
+        List of input modalities
+    output_modalities : list
+        List of output modalities
         
     Returns
     -------
@@ -294,7 +294,7 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
     - coverage_68_gt/95_gt: Assess if prediction errors are comparable to ground truth uncertainties
     """
     
-    def primary(results):
+    def calc_metrics_for_modality(results):
         predictions = results['predictions']
         ground_truth = results['ground_truth']
         ground_truth_uncertainties = results['ground_truth_uncertainties']
@@ -356,18 +356,15 @@ def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: Optional
             'uncertainty_error_correlation': uncertainty_error_correlation
         }
     
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        return primary(results)
-    else:
-        all_metrics = {input_modality: {output_modality: None for output_modality in output_modalities} for input_modality in input_modalities}
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                print(f"=== Calculating metrics for input modality: {input_modality} to output modality: {output_modality} ===")
-                all_metrics[input_modality][output_modality] = primary(results[input_modality][output_modality])
-        return all_metrics
+    all_metrics = {input_modality: {output_modality: None for output_modality in output_modalities} for input_modality in input_modalities}
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            print(f"=== Calculating metrics for input modality: {input_modality} to output modality: {output_modality} ===")
+            all_metrics[input_modality][output_modality] = calc_metrics_for_modality(results[input_modality][output_modality])
+    return all_metrics
 
 
-def plot_example_spectra(results: Dict[str, np.ndarray], test_dataset: GALAHDatasetProcessedSubset, 
+def plot_example_spectra(results: Dict[str, np.ndarray],
                         num_examples: int, save_dir: str):
     """
     Plot example spectra showing predictions vs ground truth with residuals using plot_spectra_simple.
@@ -377,8 +374,6 @@ def plot_example_spectra(results: Dict[str, np.ndarray], test_dataset: GALAHData
     results : dict
         Results from evaluate_model containing 'predictions', 'ground_truth', 
         'uncertainties', and 'wavelengths' arrays
-    test_dataset : GALAHDataset
-        Test dataset containing object IDs
     num_examples : int, default=3
         Number of example spectra to plot
     save_dir : str, default='test_results'
@@ -407,7 +402,7 @@ def plot_example_spectra(results: Dict[str, np.ndarray], test_dataset: GALAHData
     
     for i, idx in enumerate(indices):
         # Get the sobject_id for this example
-        sobject_id = int(test_dataset.ids[idx, 2])  # Assuming sobject_id is in column 2
+        sobject_id = int(sobject_ids[idx])  # Assuming sobject_id is in column 2
         
         # Create overlay comparison plot
         print(f"Creating overlay comparison plot for object {sobject_id}")
@@ -479,105 +474,7 @@ def plot_example_spectra(results: Dict[str, np.ndarray], test_dataset: GALAHData
         print(f"Saved plots for object {sobject_id}: overlay comparison and residuals")
 
 
-def plot_lightcurve_simple(ticid: int, fluxes: np.ndarray, times: np.ndarray, uncertainties: np.ndarray = None,
-                        plot_elements=True, savefig=False, showfig=True, save_dir='', starclass=None,
-                        fig=None, axes=None):
-    """
-    Plot the lightcurve for a given object.
-
-    Parameters
-    ----------
-    ticid : int
-        Identifier for the lightcurve object to be plotted.
-    fluxes : np.ndarray
-        Array of flux values for the lightcurve
-    times : np.ndarray
-        Array of time values corresponding to the fluxes
-    uncertainties : np.ndarray, optional
-        Array of uncertainty values for the fluxes. If None, uncertainties are not shown.
-    plot_elements : bool, default=True
-        Whether to overlay lightcurve markers and element labels.
-    savefig : bool, default=False
-        Whether to save the figure to disk.
-    showfig : bool, default=True
-        Whether to display the figure interactively.
-    save_dir : str, default=''
-        Directory path to save the figure if `savefig` is True.
-    fig : matplotlib.figure.Figure, optional
-        Existing figure object to plot on. If provided, `axes` must also be provided.
-    axes : np.ndarray, optional
-        Existing axes array to plot on. If provided, `fig` must also be provided.
-
-    Returns
-    -------
-    f : matplotlib.figure.Figure or None
-        The matplotlib Figure object if `showfig` is False, otherwise None.
-    ccds : np.ndarray or None
-        Array of Axes objects for each CCD panel if `showfig` is False, otherwise None.
-
-    Notes
-    -----
-    If `fig` and `axes` are provided, the function will plot on the existing axes instead of creating new ones.
-    """
-    # Check if using existing figure/axes or creating new ones
-    if fig is not None and axes is not None:
-        f, ax = fig, axes
-        use_existing = True
-    elif fig is None and axes is None:
-        f, ax = plt.subplots(1, 1, figsize=(12, 8))
-        use_existing = False
-    else:
-        raise ValueError("Both `fig` and `axes` must be provided together, or both must be None")
-    
-    if not use_existing:
-        kwargs_sob = dict(c = 'k', lw=0.5, label='Flux', rasterized=True)
-        kwargs_error_spectrum = dict(color = 'grey', label='Flux error', rasterized=True)
-    else:
-        kwargs_sob = dict(color='cyan', label='Predicted Flux', lw=0.5, rasterized=True)
-        kwargs_error_spectrum = dict(color='blue', alpha=0.2, label='Predicted Flux Error', rasterized=True)
-        
-    # Create plots
-    
-    
-    # Plot the uncertainty if provided
-    if uncertainties is not None:
-        ax.fill_between(
-            times,
-            fluxes - uncertainties,
-            fluxes + uncertainties,
-            **kwargs_error_spectrum
-            )
-    
-    # Overplot observed light curve
-    ax.plot(
-        times,
-        fluxes,
-        **kwargs_sob
-        )
-    
-    # Set title, labels, and limits
-    ax.set_xlabel('Time')
-    ax.set_ylabel('Flux')
-    ax.set_title(f'Lightcurve - {ticid} - {starclass}')
-    ax.grid(True, alpha=0.3)
-    
-    # Only call tight_layout if not using existing figure
-    if not use_existing:
-        plt.tight_layout()
-    
-    if savefig:
-        if len(save_dir) > 0:
-            plt.savefig(Path(save_dir) / f'{ticid}.png',bbox_inches='tight',dpi=200)
-        else:
-            print('No save directory provided, so not saving figure')
-    if showfig:
-        plt.show()
-        plt.close()
-        return None, None
-    else:
-        return f, ax
-
-def plot_example_lightcurves(results: Dict[str, np.ndarray], test_dataset: TESSDatasetProcessedSubset, 
+def plot_example_lightcurves(results: Dict[str, np.ndarray], 
                              num_examples: int, save_dir: str):
     """
     Plot example lightcurves showing predictions vs ground truth with residuals using plot_lightcurve_simple.
@@ -587,8 +484,6 @@ def plot_example_lightcurves(results: Dict[str, np.ndarray], test_dataset: TESSD
     results : dict
         Results from evaluate_model containing 'predictions', 'ground_truth', 
         'uncertainties', and 'times' arrays
-    test_dataset : TESSDataset
-        Test dataset containing ticids
     num_examples : int
         Number of example lightcurves to plot
     save_dir : str, default='test_results'
@@ -610,6 +505,7 @@ def plot_example_lightcurves(results: Dict[str, np.ndarray], test_dataset: TESSD
     times = results['times']
     test_instance_idxs = results['test_instance_idxs']
     ticids = results['ticids']
+    starclass_arr = results.get('starclass', None)
     
     # Select random examples
     # indices = np.random.choice(test_instance_idxs, num_examples, replace=False)
@@ -621,8 +517,11 @@ def plot_example_lightcurves(results: Dict[str, np.ndarray], test_dataset: TESSD
         print(f"Creating overlay comparison plot for object {ticid}")
         
         # First, create the base plot with ground truth
-        actual_lightcurve = test_dataset.get_actual_lightcurve(idx)
-        starclass = actual_lightcurve['starclass']
+        # Prefer saved starclass, fallback to dataset lookup
+        if starclass_arr is not None:
+            starclass = starclass_arr[idx]
+        else:
+            starclass = 'Not Provided'
         
         fig, axes = plot_lightcurve_simple(
             ticid=ticid,
@@ -759,17 +658,13 @@ def plot_metrics_summary(metrics: Dict[str, float], save_dir: str = 'test_result
         
         print(f"Saved metrics summary to {save_path / 'metrics_summary.png'}")
     
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(metrics, save_dir)
-    else:
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                primary(metrics[input_modality][output_modality], save_dir / f"input_{input_modality}_output_{output_modality}")
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            primary(metrics[input_modality][output_modality], save_dir / f"input_{'-'.join(input_modality)}_output_{output_modality}")
 
 
 def save_results(results: Dict[str, np.ndarray], metrics: Dict[str, float], save_dir: Path,
-                 spectra_or_lightcurve: str = "spectra", input_modalities: Optional[list] = None,
-                 output_modalities: Optional[list] = None):
+                 input_modalities: list, output_modalities: list):
     """
     Save prediction results and metrics to files.
     
@@ -781,30 +676,35 @@ def save_results(results: Dict[str, np.ndarray], metrics: Dict[str, float], save
         Metrics from calculate_metrics
     save_dir : Path
         Directory to save results
-    spectra_or_lightcurve : str
-        "spectra" or "lightcurve" to specify the type of data to train on. Defaults to "spectra".
     """
     
-    def primary(results, metrics, save_dir, spectra_or_lightcurve):
+    def save_results_for_modality(results, metrics, save_dir, output_modality):
+        save_dir = save_dir / 'saved_results'
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save results as numpy arrays
-        np.save(save_dir / "predictions.npy", results['predictions'])
-        np.save(save_dir / "ground_truth.npy", results['ground_truth'])
-        np.save(save_dir / "ground_truth_uncertainties.npy", results['ground_truth_uncertainties'])
-        np.save(save_dir / "uncertainties.npy", results['uncertainties'])
-        if spectra_or_lightcurve == "spectra":
-            np.save(save_dir / "wavelengths.npy", results['wavelengths'])
-        elif spectra_or_lightcurve == "lightcurve":
-            np.save(save_dir / "times.npy", results['times'])
-        np.save(save_dir / "test_instance_idxs.npy", results['test_instance_idxs'])
+        # Save all results in a single compressed .npz file
+        save_dict = {
+            "predictions": results['predictions'],
+            "ground_truth": results['ground_truth'],
+            "ground_truth_uncertainties": results['ground_truth_uncertainties'],
+            "uncertainties": results['uncertainties'],
+            "test_instance_idxs": results['test_instance_idxs'],
+        }
+        if output_modality == "spectra":
+            save_dict["wavelengths"] = results['wavelengths']
+        elif output_modality == "lightcurves":
+            save_dict["times"] = results['times']
+            # Save starclass alongside lightcurves if available
+            if 'starclass' in results:
+                save_dict["starclass"] = results['starclass']
+        np.savez_compressed(save_dir / f"predictions_and_ground_truth.npz", **save_dict)
         
         # Save sobject_ids as text file (since it's a list)
-        if spectra_or_lightcurve == "spectra":
+        if output_modality == "spectra":
             with open(save_dir / "sobject_ids.txt", 'w') as f:
                 for sobject_id in results['sobject_ids']:
                     f.write(f"{sobject_id}\n")
-        elif spectra_or_lightcurve == "lightcurve":
+        elif output_modality == "lightcurves":
             with open(save_dir / "ticids.txt", 'w') as f:
                 for ticid in results['ticids']:
                     f.write(f"{ticid}\n")
@@ -815,112 +715,156 @@ def save_results(results: Dict[str, np.ndarray], metrics: Dict[str, float], save
         
         print(f"Results saved to: {save_dir}")
     
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(results, metrics, save_dir, spectra_or_lightcurve)
-    else:
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                primary(results[input_modality][output_modality], metrics[input_modality][output_modality],
-                             save_dir / f"input_{input_modality}_output_{output_modality}", spectra_or_lightcurve)
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            save_results_for_modality(results[input_modality][output_modality], metrics[input_modality][output_modality],
+                            save_dir / f"input_{'-'.join(input_modality)}_output_{output_modality}", output_modality)
 
 
-def load_results(save_dir: Path, spectra_or_lightcurve: str = "spectra") -> Tuple[Dict[str, np.ndarray], Dict[str, float]]:
+def load_results(save_dir: Path, output_modality: str = "spectra") -> Tuple[Dict[str, np.ndarray], Dict[str, float]]:
     """
-    Load prediction results and metrics from files.
-    
+    Load prediction results and metrics saved by `save_results`.
+
     Parameters
     ----------
     save_dir : Path
-        Directory containing saved results
-    spectra_or_lightcurve : str
-        "spectra" or "lightcurve" to specify the type of data to train on. Defaults to "spectra".
+        Directory that contains the saved results for a specific input-output
+        modality combination (e.g., `.../input_photometry_output_spectra`).
+    output_modality : str, default="spectra"
+        One of {"spectra", "lightcurves"}. Used to determine axis-name fields
+        and ID filename.
+
     Returns
     -------
     tuple
         (results_dict, metrics_dict)
+
+    Notes
+    -----
+    - This now reads from a single compressed NPZ file named
+      `predictions_and_ground_truth.npz`, which contains all arrays saved by
+      `save_results`.
+    - Star IDs are still stored as text files (`sobject_ids.txt` or
+      `ticids.txt`) alongside `metrics.json` in the same directory.
     """
-    # Load numpy arrays
-    results = {
-        'predictions': np.load(save_dir / "predictions.npy"),
-        'ground_truth': np.load(save_dir / "ground_truth.npy"),
-        'ground_truth_uncertainties': np.load(save_dir / "ground_truth_uncertainties.npy"),
-        'uncertainties': np.load(save_dir / "uncertainties.npy"),
-        'test_instance_idxs': np.load(save_dir / "test_instance_idxs.npy")
+    npz_path = save_dir / "predictions_and_ground_truth.npz"
+    if not npz_path.exists():
+        raise FileNotFoundError(f"Expected results file not found: {npz_path}")
+
+    data = np.load(npz_path)
+
+    # Gather common fields from the NPZ container
+    results: Dict[str, Any] = {
+        "predictions": data["predictions"],
+        "ground_truth": data["ground_truth"],
+        "ground_truth_uncertainties": data["ground_truth_uncertainties"],
+        "uncertainties": data["uncertainties"],
+        "test_instance_idxs": data["test_instance_idxs"],
     }
-    if spectra_or_lightcurve == "spectra":
-        results['wavelengths'] = np.load(save_dir / "wavelengths.npy")
-    elif spectra_or_lightcurve == "lightcurve":
-        results['times'] = np.load(save_dir / "times.npy")
-    
-    # Load sobject_ids
-    if spectra_or_lightcurve == "spectra":
-        with open(save_dir / "sobject_ids.txt", 'r') as f:
-            results['sobject_ids'] = [int(line.strip()) for line in f]
-    elif spectra_or_lightcurve == "lightcurve":
-        with open(save_dir / "ticids.txt", 'r') as f:
-            results['ticids'] = [int(line.strip()) for line in f]
-    
-    # Load metrics
-    with open(save_dir / "metrics.json", 'r') as f:
+
+    # Axis values key depends on the output modality
+    if output_modality == "spectra":
+        if "wavelengths" in data:
+            results["wavelengths"] = data["wavelengths"]
+        id_file = save_dir / "sobject_ids.txt"
+        with open(id_file, "r") as f:
+            results["sobject_ids"] = [int(line.strip()) for line in f]
+    elif output_modality == "lightcurves":
+        if "times" in data:
+            results["times"] = data["times"]
+        id_file = save_dir / "ticids.txt"
+        with open(id_file, "r") as f:
+            results["ticids"] = [int(line.strip()) for line in f]
+        # Optional: starclass saved for lightcurves
+        if "starclass" in data:
+            results["starclass"] = data["starclass"]
+    else:
+        raise ValueError("output_modality must be one of {'spectra', 'lightcurves'}")
+
+    # Load metrics JSON
+    metrics_path = save_dir / "metrics.json"
+    with open(metrics_path, "r") as f:
         metrics = json.load(f)
-    
+
     return results, metrics
 
-
-def plot_results_from_saved(results_dir: str, test_dataset: GALAHDatasetProcessedSubset | TESSDatasetProcessedSubset, 
-                           num_examples: int = 3, save_dir: str = 'analysis_results',
-                           spectra_or_lightcurve: str = "spectra", input_modalities: Optional[list] = None,
-                           output_modalities: Optional[list] = None):
+def plot_results_from_scratch(results, testing_loader, num_examples, analysis_dir, input_modalities, output_modalities):
     """
-    Load saved results and create plots.
+    Create plots directly from in-memory results structure returned by get_predictions.
+
+    Expects `results` to be a nested dict: results[input_modality][output_modality] -> results dict.
+    Writes plots into `analysis_dir/input_<in-mods>_output_<out-mod>`.
+    """
+    for input_modality_combo in input_modalities:
+        for output_modality in output_modalities:
+            subdir = analysis_dir / f"input_{'-'.join(input_modality_combo)}_output_{output_modality}"
+            modality_results = results[input_modality_combo][output_modality]
+            if output_modality == "spectra":
+                plot_example_spectra(modality_results, num_examples, subdir)
+            else:
+                plot_example_lightcurves(modality_results, num_examples, subdir)
     
+
+def plot_results_from_saved(
+    results_dir: str,
+    test_dataset: GALAHDatasetProcessedSubset | TESSDatasetProcessedSubset,
+    num_examples: int = 3,
+    save_dir: str = "analysis_results",
+    input_modalities: Optional[list] = None,
+    output_modalities: Optional[list] = None,
+):
+    """
+    Load saved results (written by `save_results`) and create plots per
+    input-output modality combination.
+
     Parameters
     ----------
     results_dir : str
-        Directory containing saved results
+        Root directory containing subfolders per modality combination, i.e.,
+        `input_<in-mods>_output_<out-mod>` where arrays are saved in a single
+        `predictions_and_ground_truth.npz` with associated `metrics.json` and
+        star ID text files.
     test_dataset : GALAHDataset or TESSDataset
-        Test dataset for getting object IDs or ticids
+        Test dataset for getting object IDs or TIC/Sobject IDs.
     num_examples : int, default=3
-        Number of example spectra or lightcurves to plot
-    save_dir : str, default='analysis_results'
-        Directory to save plots
-    spectra_or_lightcurve : str
-        "spectra" or "lightcurve" to specify the type of data to train on. Defaults to "spectra".
+        Number of example spectra or lightcurves to plot.
+    save_dir : str, default="analysis_results"
+        Directory where plots will be written, mirrored by modality folders.
     """
-    def primary(results_dir, test_dataset, num_examples, save_dir, spectra_or_lightcurve):
-        results_path = Path(results_dir)
-        if not results_path.exists():
-            raise FileNotFoundError(f"Results directory not found: {results_dir}")
-        
-        print(f"Loading results from: {results_dir}")
-        results, metrics = load_results(results_path / 'saved_results', spectra_or_lightcurve)
-        
+
+    base_results_dir = Path(results_dir)
+    base_save_dir = Path(save_dir)
+
+    def primary(modality_results_dir: Path, ds, num_examples: int, out_dir: Path, output_modality: str):
+        if not modality_results_dir.exists():
+            raise FileNotFoundError(f"Results directory not found: {modality_results_dir}")
+
+        print(f"Loading results from: {modality_results_dir}")
+        results, metrics = load_results(modality_results_dir, output_modality)
+
         # Print metrics
         print_evaluation_metrics(metrics)
-        
+
         # Create plots
         print("Creating example plots...")
-        if spectra_or_lightcurve == "spectra":
-            plot_example_spectra(results, test_dataset, num_examples, save_dir)
-        elif spectra_or_lightcurve == "lightcurve":
-            plot_example_lightcurves(results, test_dataset, num_examples, save_dir)
-        
+        if output_modality == "spectra":
+            plot_example_spectra(results, num_examples, out_dir)
+        elif output_modality == "lightcurves":
+            plot_example_lightcurves(results, num_examples, out_dir)
+
         print("Creating metrics summary...")
-        plot_metrics_summary(metrics, save_dir)
-        
-        print(f"Plots saved to: {save_dir}")
+        plot_metrics_summary(metrics, out_dir)
 
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(results_dir, test_dataset, num_examples, save_dir, spectra_or_lightcurve)
-    else:
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                if output_modality == "spectra":
-                    primary(results_dir, test_dataset.spectra_dataset, num_examples, save_dir / f"input_{input_modality}_output_{output_modality}", spectra_or_lightcurve)
-                elif output_modality == "lightcurves":
-                    primary(results_dir, test_dataset.lightcurve_dataset, num_examples, save_dir / f"input_{input_modality}_output_{output_modality}", spectra_or_lightcurve)
+        print(f"Plots saved to: {out_dir}")
 
-
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            results_subdir = base_results_dir / f"input_{'-'.join(input_modality)}_output_{output_modality}"
+            save_subdir = base_save_dir / f"input_{'-'.join(input_modality)}_output_{output_modality}"
+            if output_modality == "spectra":
+                primary(results_subdir, getattr(test_dataset, "spectra_dataset", test_dataset), num_examples, save_subdir, output_modality)
+            elif output_modality == "lightcurves":
+                primary(results_subdir, getattr(test_dataset, "lightcurve_dataset", test_dataset), num_examples, save_subdir, output_modality)
 
 
 class UnprocessPredictionWriter(BasePredictionWriter):
@@ -961,6 +905,7 @@ class UnprocessPredictionWriter(BasePredictionWriter):
         self._wavelengths_or_times: List[np.ndarray] = []
         self._indices: List[np.ndarray] = []
         self._star_ids: List[Any] = []
+        self._starclass: List[Any] = []
         self._dataset: Any = None
         self._task: Optional[str] = None  # "lightcurves" or "spectra"
         self._logger_dir: Optional[Path] = None
@@ -973,17 +918,15 @@ class UnprocessPredictionWriter(BasePredictionWriter):
         that holds the unprocessing helpers and normalization buffers.
         """
         # Resolve logger directory for default saving location
-        log_dir = getattr(trainer.logger, "log_dir", None)
-        self._logger_dir = Path(log_dir) if log_dir is not None else Path.cwd()
+        log_dir = getattr(trainer.logger, "log_dir")
+        self._logger_dir = Path(log_dir)
 
         # Determine dataset from predict dataloader 0
-        ds = None
-        try:
-            vloaders = trainer.predict_dataloaders
-            if isinstance(vloaders, (list, tuple)) and len(vloaders) > 0:
-                ds = getattr(vloaders[0], "dataset", None)
-        except Exception:
-            ds = None
+        vloaders = trainer.predict_dataloaders
+        if isinstance(vloaders, (list, tuple)):
+            ds = getattr(vloaders[0], "dataset")
+        else:
+            ds = getattr(vloaders, "dataset")
 
         # Unwrap torch.utils.data.Subset chains to reach base dataset
         unwrap_budget = 5
@@ -991,7 +934,7 @@ class UnprocessPredictionWriter(BasePredictionWriter):
             ds = ds.dataset
             unwrap_budget -= 1
         self._dataset = ds
-
+        
         # Detect task type by available unprocessing functions
         if hasattr(ds, "unprocess_lightcurves"):
             self._task = "lightcurves"
@@ -1011,6 +954,7 @@ class UnprocessPredictionWriter(BasePredictionWriter):
         predictions: Any,
         batch_indices: Optional[Sequence[int]],
         batch: Dict[str, Any],
+        batch_idx: int,
         dataloader_idx: int,
     ) -> None:
         """
@@ -1031,7 +975,9 @@ class UnprocessPredictionWriter(BasePredictionWriter):
         idxs = self._to_numpy(batch["idx"])  # matches testing.py using batch['idx']
 
         # Extract predictions. Handle MC samples or single prediction.
-        flux_pred, flux_err_pred = self._extract_flux_predictions(predictions)
+        flux_pred = predictions['flux']
+        flux_err_pred = predictions['flux_uncertainty']
+        # flux_pred, flux_err_pred = self._extract_flux_predictions(predictions)
         # If predictions contain a leading MC-sample dimension, collapse with mean/std
         # Expect shapes: (num_samples, batch, length) or (batch, length)
         if flux_pred.ndim == 3:
@@ -1052,6 +998,8 @@ class UnprocessPredictionWriter(BasePredictionWriter):
         ground_truth = np.stack([a["flux"] for a in actuals])
         ground_truth_uncertainties = np.stack([a["flux_errs"] for a in actuals])
         star_ids_batch = np.array([a["ids"][2] for a in actuals])
+        if self._task == "lightcurves":
+            starclass_batch = [a["starclass"] for a in actuals]
 
         # Convert prediction mean to numpy
         pred_mean_np = self._to_numpy(pred_mean)
@@ -1090,6 +1038,8 @@ class UnprocessPredictionWriter(BasePredictionWriter):
         self._uncertainties.append(uncertainties)
         self._wavelengths_or_times.append(wavelengths_or_times)
         self._star_ids.extend(star_ids_batch)
+        if self._task == "lightcurves":
+            self._starclass.extend(starclass_batch)
 
     def on_predict_end(self, trainer: L.Trainer, pl_module: L.LightningModule) -> None:
         """
@@ -1115,13 +1065,16 @@ class UnprocessPredictionWriter(BasePredictionWriter):
         if self._task == "lightcurves":
             out["times"] = wavelengths_or_times
             out["ticids"] = self._star_ids
+            out["starclass"] = np.array(self._starclass)
         elif self._task == "spectra":
             out["wavelengths"] = wavelengths_or_times
             out["sobject_ids"] = self._star_ids
 
         # Save one NPZ for convenience
+        input_modalities = pl_module.predict_input_modalities
+        output_modalities = pl_module.predict_output_modality
         if self.save_dir is not None:
-            np.savez_compressed(self.save_dir / "prediction_results.npz", **out)
+            np.savez_compressed(self.save_dir / f"prediction_results_input_{'-'.join(input_modalities)}_output_{output_modalities}.npz", **out)
 
     # --------- helpers ---------
     @staticmethod

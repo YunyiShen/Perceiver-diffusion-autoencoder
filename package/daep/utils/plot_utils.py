@@ -285,3 +285,103 @@ def galah_plot_simple(sobject_id, test_name, savefig=False, save_dir=''):
     spectra, uncertainties, wavelengths = extract_spectrum(sobject_id, test_name)
     f = plot_spectra_simple(sobject_id, spectra, wavelengths, uncertainties, plot_elements=True, savefig=savefig, save_dir=save_dir)
     return f
+
+
+
+def plot_lightcurve_simple(ticid: int, fluxes: np.ndarray, times: np.ndarray, uncertainties: np.ndarray = None,
+                        plot_elements=True, savefig=False, showfig=True, save_dir='', starclass=None,
+                        fig=None, axes=None):
+    """
+    Plot the lightcurve for a given object.
+
+    Parameters
+    ----------
+    ticid : int
+        Identifier for the lightcurve object to be plotted.
+    fluxes : np.ndarray
+        Array of flux values for the lightcurve
+    times : np.ndarray
+        Array of time values corresponding to the fluxes
+    uncertainties : np.ndarray, optional
+        Array of uncertainty values for the fluxes. If None, uncertainties are not shown.
+    plot_elements : bool, default=True
+        Whether to overlay lightcurve markers and element labels.
+    savefig : bool, default=False
+        Whether to save the figure to disk.
+    showfig : bool, default=True
+        Whether to display the figure interactively.
+    save_dir : str, default=''
+        Directory path to save the figure if `savefig` is True.
+    fig : matplotlib.figure.Figure, optional
+        Existing figure object to plot on. If provided, `axes` must also be provided.
+    axes : np.ndarray, optional
+        Existing axes array to plot on. If provided, `fig` must also be provided.
+
+    Returns
+    -------
+    f : matplotlib.figure.Figure or None
+        The matplotlib Figure object if `showfig` is False, otherwise None.
+    ccds : np.ndarray or None
+        Array of Axes objects for each CCD panel if `showfig` is False, otherwise None.
+
+    Notes
+    -----
+    If `fig` and `axes` are provided, the function will plot on the existing axes instead of creating new ones.
+    """
+    # Check if using existing figure/axes or creating new ones
+    if fig is not None and axes is not None:
+        f, ax = fig, axes
+        use_existing = True
+    elif fig is None and axes is None:
+        f, ax = plt.subplots(1, 1, figsize=(12, 8))
+        use_existing = False
+    else:
+        raise ValueError("Both `fig` and `axes` must be provided together, or both must be None")
+    
+    if not use_existing:
+        kwargs_sob = dict(c = 'k', lw=0.5, label='Flux', rasterized=True)
+        kwargs_error_spectrum = dict(color = 'grey', label='Flux error', rasterized=True)
+    else:
+        kwargs_sob = dict(color='cyan', label='Predicted Flux', lw=0.5, rasterized=True)
+        kwargs_error_spectrum = dict(color='blue', alpha=0.2, label='Predicted Flux Error', rasterized=True)
+        
+    # Create plots
+    
+    
+    # Plot the uncertainty if provided
+    if uncertainties is not None:
+        ax.fill_between(
+            times,
+            fluxes - uncertainties,
+            fluxes + uncertainties,
+            **kwargs_error_spectrum
+            )
+    
+    # Overplot observed light curve
+    ax.plot(
+        times,
+        fluxes,
+        **kwargs_sob
+        )
+    
+    # Set title, labels, and limits
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Flux')
+    ax.set_title(f'Lightcurve - {ticid} - Class:{starclass}')
+    ax.grid(True, alpha=0.3)
+    
+    # Only call tight_layout if not using existing figure
+    if not use_existing:
+        plt.tight_layout()
+    
+    if savefig:
+        if len(save_dir) > 0:
+            plt.savefig(Path(save_dir) / f'{ticid}.png',bbox_inches='tight',dpi=200)
+        else:
+            print('No save directory provided, so not saving figure')
+    if showfig:
+        plt.show()
+        plt.close()
+        return None, None
+    else:
+        return f, ax

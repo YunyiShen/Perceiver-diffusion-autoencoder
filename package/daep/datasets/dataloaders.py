@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader, Subset
 from sklearn.model_selection import train_test_split
 from daep.data_util import padding_collate_fun
 
-def create_dataloader(config, data_types, data_names, train=True):
+def create_dataloader(config, data_types, data_names, train=True, subset_size=None):
     """
     Create dataset(s) and return DataLoader(s).
 
@@ -30,7 +30,7 @@ def create_dataloader(config, data_types, data_names, train=True):
         data_path = Path(config["data"]["data_path"]) / 'spectra'
         test_name = data_names[0]
         from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
-        training_data = GALAHDatasetProcessed(
+        full_dataset = GALAHDatasetProcessed(
             data_dir=data_path / test_name, 
             train=train, 
         )
@@ -40,7 +40,7 @@ def create_dataloader(config, data_types, data_names, train=True):
         data_path = Path(config["data"]["data_path"]) / 'lightcurves'
         test_name = data_names[0]
         from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
-        training_data = TESSDatasetProcessed(
+        full_dataset = TESSDatasetProcessed(
             data_dir=data_path / test_name, 
             train=train, 
         )
@@ -63,7 +63,7 @@ def create_dataloader(config, data_types, data_names, train=True):
             data_dir=data_path / 'spectra' / spectra_test_name, 
             train=train, 
         )
-        training_data = TESSGALAHDatasetProcessed(
+        full_dataset = TESSGALAHDatasetProcessed(
             dataset_lc, 
             dataset_spectra, 
         )
@@ -72,21 +72,27 @@ def create_dataloader(config, data_types, data_names, train=True):
     else:
         raise ValueError(f"Unsupported data_types: {data_types}")
     
+    if subset_size is not None:
+        np.random.seed(42)
+        dataset = Subset(full_dataset, np.random.choice(len(full_dataset), subset_size, replace=False))
+    else:
+        dataset = full_dataset
+    
     if train:
         val_split = 0.1  # 10% of the data for validation
         train_idx, validation_idx = train_test_split(
-            np.arange(len(training_data)),
+            np.arange(len(dataset)),
             test_size=val_split,
             random_state=42,
             shuffle=True
         )
 
-        full_dataset = training_data
-        training_data = Subset(full_dataset, train_idx)
-        validation_data = Subset(full_dataset, validation_idx)
+        full_dataset = dataset
+        dataset_train = Subset(full_dataset, train_idx)
+        dataset_val = Subset(full_dataset, validation_idx)
 
         training_loader = DataLoader(
-            training_data,
+            dataset_train,
             batch_size=config["training"]["batch"],
             shuffle=True,
             collate_fn=collate_fn,
@@ -95,7 +101,7 @@ def create_dataloader(config, data_types, data_names, train=True):
         )
 
         validation_loader = DataLoader(
-            validation_data,
+            dataset_val,
             batch_size=config["training"]["batch"],
             shuffle=False,
             collate_fn=collate_fn,
@@ -105,7 +111,7 @@ def create_dataloader(config, data_types, data_names, train=True):
         return training_loader, validation_loader
     else:
         testing_loader = DataLoader(
-            training_data, 
+            dataset, 
             batch_size=config["testing"]["batch"], 
             shuffle=False,
             collate_fn=collate_fn,
