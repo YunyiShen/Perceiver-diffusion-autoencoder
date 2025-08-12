@@ -7,6 +7,9 @@ import pytorch_lightning as L
 import json
 import re
 from pytorch_lightning.callbacks import BasePredictionWriter
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
+from torch.utils.data import Dataset
+import seaborn as sns
 
 # Import the necessary modules
 from daep.daep import unimodaldaep, multimodaldaep
@@ -14,242 +17,6 @@ from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessedSubset
 from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessedSubset
 from daep.utils.general_utils import create_model_str, create_model_str_classifier
 from daep.utils.plot_utils import plot_spectra_simple, plot_lightcurve_simple
-
-def extract_epoch_from_model_path(model_path: str) -> str:
-    """
-    Extract epoch number from model path.
-    
-    Parameters
-    ----------
-    model_path : str
-        Path to the model file
-        
-    Returns
-    -------
-    str
-        Epoch number as string, or 'Unknown' if not found
-    """
-    epoch_match = re.search(r'epoch_(\d+)', str(model_path))
-    if epoch_match:
-        epoch_number = int(epoch_match.group(1))
-        print(f"Detected epoch number from model path: {epoch_number}")
-        return str(epoch_number)
-    else:
-        try:
-            checkpoint = torch.load(model_path, map_location='cpu')
-            epoch_number = checkpoint['epoch']
-            print(f"Detected epoch number from checkpoint: {epoch_number}")
-            return str(epoch_number)
-        except Exception as e:
-            print("Epoch number not found in model path.")
-            return 'Unknown'
-
-def create_analysis_directory(config: Dict[str, Any], models_path: Path, 
-                           test_name: str, epoch_number: str, data_name: str) -> Path:
-    """
-    Create analysis directory path based on configuration and model parameters.
-    
-    Parameters
-    ----------
-    config : dict
-        Configuration dictionary
-    models_path : Path
-        Path to models directory
-    test_name : str
-        Name of the test dataset
-    epoch_number : str
-        Epoch number from model path
-        
-    Returns
-    -------
-    Path
-        Path to analysis directory
-    """
-    model_str = create_model_str(config, data_name)
-    analysis_dir = models_path / test_name / model_str / f"epoch_{epoch_number}" / "analysis_results"
-    return analysis_dir
-
-def print_evaluation_metrics(metrics: Dict[str, float], input_modalities: Optional[list] = None, output_modalities: Optional[list] = None):
-    """
-    Print evaluation metrics in a formatted way.
-    
-    Parameters
-    ----------
-    metrics : dict
-        Dictionary containing evaluation metrics
-    """
-    def primary(metrics):
-        print("\n=== Model Evaluation Results ===")
-        print(f"MSE: {metrics['mse']:.6f}")
-        print(f"MAE: {metrics['mae']:.6f}")
-        print(f"RMSE: {metrics['rmse']:.6f}")
-        print(f"Mean Relative Error: {metrics['mean_relative_error']:.6f}")
-        print(f"68% Coverage: {metrics['coverage_68']:.3f} (expected: 0.68)")
-        print(f"95% Coverage: {metrics['coverage_95']:.3f} (expected: 0.95)")
-        print(f"Mean Uncertainty Width: {metrics['mean_uncertainty_width']:.6f}")
-        print(f"Uncertainty-Error Correlation: {metrics['uncertainty_error_correlation']:.3f}")
-    
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(metrics)
-    else:
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                print(f"=== Input: {input_modality} to Output: {output_modality} ===")
-                primary(metrics[input_modality][output_modality])
-
-def auto_detect_model_path(config: Dict[str, Any], models_path: Path, test_name: str) -> str:
-    """
-    Auto-detect the most recent model checkpoint based on configuration.
-    
-    Parameters
-    ----------
-    config : dict
-        Configuration dictionary containing model and training parameters
-    models_path : Path
-        Path to the models directory
-    test_name : str
-        Name of the test dataset
-        
-    Returns
-    -------
-    str
-        Path to the most recent model checkpoint
-    """
-    # Look for models matching the current configuration
-    try:
-        model_str = create_model_str(config, '*')
-    except KeyError:
-        model_str = create_model_str_classifier(config, '*')
-    
-    # Remove 'date' and all characters after it in model_str for pattern matching
-    import re
-    model_str = re.sub(r'date.*', '', model_str)
-    model_pattern = f"{model_str}*"
-
-    ckpt_dir = models_path / test_name / "ckpt"
-    if ckpt_dir.exists():
-        available_models = list(ckpt_dir.glob(model_pattern))
-        if not available_models:
-            raise FileNotFoundError(f"No models matching model pattern {model_pattern} found in {ckpt_dir}")
-        
-        # Use the most recent matching model
-        model_path = sorted(available_models, key=lambda x: x.stat().st_mtime, reverse=True)[0]
-        print(f"Found matching model: {model_path}")
-        return model_path
-    else:
-        models_path = models_path / test_name
-        if not models_path.exists():
-            raise FileNotFoundError(f"Models path not found: {models_path}")
-        
-        # Only include directories matching the model pattern
-        available_model_dirs = [p for p in models_path.glob(model_pattern) if p.is_dir()]
-        if not available_model_dirs:
-            raise FileNotFoundError(f"No models matching model pattern {model_pattern} found in {models_path}")
-        
-        # Use the most recent matching model
-        model_dir = sorted(available_model_dirs, key=lambda x: x.stat().st_mtime, reverse=True)[0]
-        print(f"Found matching model: {model_dir}")
-        # Take the highest epoch checkpoint within model_dir
-        checkpoint_files = list((model_dir / "ckpt").glob("*.pth"))
-        if not checkpoint_files:
-            # If no checkpoint files found in model_dir/ckpt, search inside the most recently created subfolder within model_dir
-            subdirs = [d for d in model_dir.iterdir() if d.is_dir()]
-            if not subdirs:
-                raise FileNotFoundError(f"No model subdirectories found in {model_dir / 'ckpt'}")
-            # Sort subdirectories by modification time (most recent first)
-            most_recent_subdir = sorted(subdirs, key=lambda x: x.stat().st_mtime, reverse=True)[0]
-            checkpoint_files = list((most_recent_subdir / 'ckpt').glob("*.pth"))
-            if not checkpoint_files:
-                raise FileNotFoundError(f"No checkpoint files found in {most_recent_subdir}")
-        # Extract epoch numbers from filenames and select the highest
-        import re
-        def extract_epoch(filename):
-            match = re.search(r"epoch_(\d+)", filename.stem)
-            return int(match.group(1)) if match else -1
-        checkpoint_files_sorted = sorted(checkpoint_files, key=lambda x: extract_epoch(x), reverse=True)
-        last_ckpt = checkpoint_files_sorted[0]
-        return last_ckpt        
-        
-
-def load_trained_model(model_path: Path, device: torch.device, config: Dict[str, Any], spectra_or_lightcurve: str = "spectra") -> unimodaldaep:
-    """
-    Load a trained model.
-    
-    Parameters
-    ----------
-    model_path : Path
-        Path to the saved model
-    model_params : dict
-        Model parameters used during training
-    spectra_or_lightcurve : str, optional
-        "spectra" or "lightcurve" to specify the type of data to train on. Defaults to "spectra".
-    Returns
-    -------
-    unimodaldaep
-        Loaded model
-    """
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model not found at {model_path}")
-    
-    # Load the model with weights_only=False for compatibility with older saved models
-    # This is safe since we're loading our own trained models
-    try:
-        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
-    except Exception as e:
-        print(f"Failed to load model with weights_only=False: {e}")
-        print("Trying with safe globals...")
-        # Alternative approach: add our custom class to safe globals
-        from torch.serialization import add_safe_globals
-        add_safe_globals([unimodaldaep, multimodaldaep])
-        checkpoint = torch.load(model_path, map_location=device, weights_only=True)
-    
-    # Check if the checkpoint is a model or a dict containing more information
-    if isinstance(checkpoint, dict):
-        if 'model' in checkpoint:
-            # If the checkpoint contains a model, we can just load the model
-            model = checkpoint['model']
-        elif 'model_state_dict' in checkpoint:
-            # If the checkpoint is a state dict, we need to instantiate the model and load the state dict
-            if spectra_or_lightcurve == "spectra":
-                from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScore2stages
-                encoder_type = spectraTransceiverEncoder
-                score_type = spectraTransceiverScore2stages
-            elif spectra_or_lightcurve == "lightcurve":
-                from daep.PhotometricLayers import photometricTransceiverEncoder, photometricTransceiverScore2stages
-                encoder_type = photometricTransceiverEncoder
-                score_type = photometricTransceiverScore2stages
-            encoder = encoder_type(
-                bottleneck_length=config["model"]["bottlenecklen"],
-                bottleneck_dim=config["model"]["bottleneckdim"],
-                model_dim=config["model"]["model_dim"],
-                num_heads=config["model"]["encoder_heads"],
-                ff_dim=config["model"]["model_dim"],
-                num_layers=config["model"]["encoder_layers"],
-                concat=config["model"]["concat"]
-            ).to(device)
-            score = score_type(
-                bottleneck_dim=config["model"]["bottleneckdim"],
-                model_dim=config["model"]["model_dim"],
-                num_heads=config["model"]["decoder_heads"],
-                ff_dim=config["model"]["model_dim"],
-                num_layers=config["model"]["decoder_layers"],
-                concat=config["model"]["concat"],
-                cross_attn_only=config["model"]["cross_attn_only"]
-            ).to(device)
-            model = unimodaldaep(encoder, score, regularize=config["model"]["regularize"]).to(device)
-            model.load_state_dict(checkpoint['model_state_dict'])
-    else:
-        # If the checkpoint is a model, we can just load the model
-        model = checkpoint
-    
-    if 'use_uncertainty' in config["model"]:
-        model.output_uncertainty = config["model"]["use_uncertainty"]
-    else:
-        model.output_uncertainty = False
-    
-    model.eval()
-    return model
-
 
 def calculate_metrics(results: Dict[str, np.ndarray], input_modalities: list, output_modalities: list) -> Dict[str, float]:
     """
@@ -842,9 +609,6 @@ def plot_results_from_saved(
         print(f"Loading results from: {modality_results_dir}")
         results, metrics = load_results(modality_results_dir, output_modality)
 
-        # Print metrics
-        print_evaluation_metrics(metrics)
-
         # Create plots
         print("Creating example plots...")
         if output_modality == "spectra":
@@ -865,6 +629,348 @@ def plot_results_from_saved(
                 primary(results_subdir, getattr(test_dataset, "spectra_dataset", test_dataset), num_examples, save_subdir, output_modality)
             elif output_modality == "lightcurves":
                 primary(results_subdir, getattr(test_dataset, "lightcurve_dataset", test_dataset), num_examples, save_subdir, output_modality)
+
+def make_confusion_matrix(model, class_names, device, output_dir):
+    """
+    Plot and save the confusion matrix for the given model.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The trained model with a confusion matrix attribute.
+    class_names : list
+        List of class names for labeling the confusion matrix.
+    device : torch.device or str
+        Device to move the confusion matrix to.
+    output_dir : str or Path
+        Directory where the confusion matrix image will be saved.
+
+    Notes
+    -----
+    Uses pathlib for path handling.
+    """
+
+    metric = model.conf_matrix.to(device)
+    fig_, ax_ = metric.plot(labels=class_names)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)  # Ensure output directory exists
+    save_path = output_dir / f'confusion_matrix.png'
+    plt.savefig(save_path)
+    plt.close()
+
+
+def calculate_classification_metrics(results: Dict[str, np.ndarray], dataset: Dataset,
+                                   input_modalities: Optional[list] = None, 
+                                   output_modalities: Optional[list] = None) -> Dict[str, float]:
+    """
+    Calculate classification evaluation metrics for the model predictions.
+    
+    Parameters
+    ----------
+    results : dict
+        Dictionary containing:
+        - predictions : np.ndarray
+            Model predicted class labels
+        - ground_truth : np.ndarray
+            Ground truth class labels
+        - prediction_probs : np.ndarray
+            Model prediction probabilities
+    input_modalities : list, optional
+        List of input modalities for multimodal models
+    output_modalities : list, optional
+        List of output modalities for multimodal models
+        
+    Returns
+    -------
+    dict
+        Dictionary containing classification metrics in the format:
+        - confusion_matrix: confusion matrix array
+        - class_metrics: dict with per-class accuracy, recall, precision, F1
+        - total_metrics: dict with total accuracy, recall, precision, F1
+    """
+    
+    def primary(results):
+        predictions = results['predictions']
+        ground_truth = results['ground_truth']
+        
+        # Ensure both predictions and ground_truth are in single class label format
+        if len(predictions.shape) > 1 and predictions.shape[1] > 1:
+            # Predictions are one-hot encoded, convert to single labels
+            predictions = np.argmax(predictions, axis=1)
+        
+        if len(ground_truth.shape) > 1 and ground_truth.shape[1] > 1:
+            # Ground truth are one-hot encoded, convert to single labels
+            ground_truth = np.argmax(ground_truth, axis=1)
+        
+        # Ensure both are 1D arrays
+        predictions = predictions.flatten()
+        print(predictions)
+        ground_truth = ground_truth.flatten()
+        print(ground_truth)
+        
+        # Get class names if available, otherwise use integers
+        if hasattr(dataset, 'starclass_name_to_int'):
+            # Use actual class names from the dataset
+            class_names = list(dataset.starclass_name_to_int.keys())
+            labels = list(range(len(class_names)))  # Use integer labels for sklearn functions
+        else:
+            # Fallback to integer labels if no class names available
+            unique_classes = np.unique(np.concatenate([predictions, ground_truth]))
+            class_names = [f'class_{i}' for i in unique_classes]
+            labels = unique_classes
+        
+        # Calculate confusion matrix
+        cm = confusion_matrix(ground_truth, predictions, labels=labels)
+        
+        # Calculate per-class metrics
+        precision, recall, f1, support = precision_recall_fscore_support(
+            ground_truth, predictions, average=None, zero_division=0, labels=labels
+        )
+        
+        # Calculate per-class accuracy (diagonal of confusion matrix / row sums)
+        class_accuracy = np.diag(cm) / (np.sum(cm, axis=1) + 1e-8)
+        
+        # Calculate total metrics
+        total_accuracy = float(accuracy_score(ground_truth, predictions))
+        total_precision, total_recall, total_f1, _ = precision_recall_fscore_support(
+            ground_truth, predictions, average='macro', zero_division=0, labels=labels
+        )
+        
+        # Create per-class metrics dictionary using class names
+        num_classes = len(cm)
+        class_metrics = {}
+        for i in range(num_classes):
+            class_metrics[class_names[i]] = {
+                'accuracy': float(class_accuracy[i]),
+                'recall': float(recall[i]),
+                'precision': float(precision[i]),
+                'f1': float(f1[i]),
+                'support': int(support[i])
+            }
+        
+        # Create total metrics dictionary
+        total_metrics = {
+            'accuracy': total_accuracy,
+            'recall': float(total_recall),
+            'precision': float(total_precision),
+            'f1': float(total_f1)
+        }
+        
+        return {
+            'class_metrics': class_metrics,
+            'total_metrics': total_metrics,
+            'num_classes': num_classes,
+            'class_names': class_names
+        }
+    
+    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
+        return primary(results)
+    else:
+        all_metrics = {input_modality: {output_modality: None for output_modality in output_modalities} for input_modality in input_modalities}
+        for input_modality in input_modalities:
+            for output_modality in output_modalities:
+                all_metrics[input_modality][output_modality] = primary(results[input_modality][output_modality])
+        return all_metrics
+
+
+def print_classification_metrics(metrics: Dict[str, float], 
+                                input_modalities: Optional[list] = None, 
+                                output_modalities: Optional[list] = None):
+    """
+    Print classification evaluation metrics in a formatted way.
+    
+    Parameters
+    ----------
+    metrics : dict
+        Dictionary containing classification evaluation metrics
+    input_modalities : list, optional
+        List of input modalities for multimodal models
+    output_modalities : list, optional
+        List of output modalities for multimodal models
+    """
+    def primary(metrics):
+        print("\n=== Classification Model Evaluation Results ===")
+        
+        # Print total metrics
+        total = metrics['total_metrics']
+        print(f"Total Accuracy: {total['accuracy']:.2f}")
+        print(f"Total Recall: {total['recall']:.2f}")
+        print(f"Total Precision: {total['precision']:.2f}")
+        print(f"Total F1: {total['f1']:.2f}")
+        
+        # Print per-class metrics in table format
+        print("\n=== Per-Class Performance ===")
+        print("Class\t\tAccuracy\tRecall\t\tPrecision\tF1\t\tSupport")
+        print("-" * 80)
+        
+        class_metrics = metrics['class_metrics']
+        for class_name, class_data in class_metrics.items():
+            print(f"{class_name}\t\t{class_data['accuracy']:.3f}\t\t{class_data['recall']:.3f}\t\t"
+                  f"{class_data['precision']:.3f}\t\t{class_data['f1']:.3f}\t\t{class_data['support']}")
+    
+    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
+        primary(metrics)
+    else:
+        for input_modality in input_modalities:
+            for output_modality in output_modalities:
+                print(f"=== Input: {input_modality} to Output: {output_modality} ===")
+                primary(metrics[input_modality][output_modality])
+
+
+def plot_confusion_matrix(results: Dict[str, np.ndarray], save_dir: Path, 
+                         input_modalities: Optional[list] = None, 
+                         output_modalities: Optional[list] = None,
+                         starclass_names: Optional[list] = None):
+    """
+    Plot confusion matrix for classification results.
+    
+    Parameters
+    ----------
+    results : dict
+        Dictionary containing predictions and ground truth
+    save_dir : Path
+        Directory to save the plot
+    input_modalities : list, optional
+        List of input modalities for multimodal models
+    output_modalities : list, optional
+        List of output modalities for multimodal models
+    dataset : Dataset, optional
+        Dataset object to get class names from
+    """
+    def primary(results, save_dir, dataset=None):
+        predictions = results['predictions']
+        ground_truth = results['ground_truth']
+        
+        # Get class names if available
+        if starclass_names is not None:
+            class_names = starclass_names
+            labels = list(range(len(class_names)))
+        else:
+            # Fallback to integer labels
+            unique_classes = np.unique(np.concatenate([predictions, ground_truth]))
+            class_names = [f'Class {i}' for i in unique_classes]
+            labels = unique_classes
+        
+        # Calculate confusion matrix
+        cm = confusion_matrix(ground_truth, predictions, labels=labels)
+        
+        # Create plot
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                   xticklabels=class_names, yticklabels=class_names)
+        plt.title(f'Confusion Matrix')
+        plt.xlabel('Predicted Class')
+        plt.ylabel('True Class')
+        
+        # Rotate x-axis labels for better readability
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        
+        # Adjust layout to prevent label cutoff
+        plt.tight_layout()
+        
+        # Save plot
+        save_path = save_dir / f'confusion_matrix.png'
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Confusion matrix saved to: {save_path}")
+    
+    
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            subdir = save_dir / f"input_{input_modality}_output_{output_modality}"
+            primary(results[input_modality][output_modality], subdir, dataset=dataset)
+
+
+def plot_classification_metrics_summary(metrics: Dict[str, float], save_dir: Path,
+                                       input_modalities: Optional[list] = None, 
+                                       output_modalities: Optional[list] = None,
+                                       dataset: Optional[Dataset] = None):
+    """
+    Create a table of the classification evaluation metrics as an image.
+    
+    Parameters
+    ----------
+    metrics : dict
+        Metrics from calculate_classification_metrics
+    save_dir : Path
+        Directory to save the plot
+    input_modalities : list, optional
+        List of input modalities for multimodal models
+    output_modalities : list, optional
+        List of output modalities for multimodal models
+    dataset : Dataset, optional
+        Dataset object to get class names from
+    """
+    def primary(metrics, save_dir, modality_name="", dataset=None):
+        save_path = Path(save_dir)
+        save_path.mkdir(exist_ok=True)
+        
+        # Create figure for table
+        fig, ax = plt.subplots(figsize=(14, 10))  # Increased figure size for better readability
+        ax.axis('tight')
+        ax.axis('off')
+        
+        # Prepare table data
+        class_metrics = metrics['class_metrics']
+        total_metrics = metrics['total_metrics']
+        
+        # Create table data
+        table_data = []
+        headers = ['Class', 'Accuracy', 'Recall', 'Precision', 'F1', 'Support']
+        
+        # Add per-class rows
+        for class_name, class_data in class_metrics.items():
+            table_data.append([
+                class_name,
+                f"{class_data['accuracy']:.3f}",
+                f"{class_data['recall']:.3f}",
+                f"{class_data['precision']:.3f}",
+                f"{class_data['f1']:.3f}",
+                str(class_data['support'])
+            ])
+        
+        # Add total row
+        table_data.append([
+            'Total',
+            f"{total_metrics['accuracy']:.3f}",
+            f"{total_metrics['recall']:.3f}",
+            f"{total_metrics['precision']:.3f}",
+            f"{total_metrics['f1']:.3f}",
+            str(sum(class_metrics[cls]['support'] for cls in class_metrics))
+        ])
+        
+        # Create table
+        table = ax.table(cellText=table_data, colLabels=headers, cellLoc='center', loc='center')
+        table.auto_set_font_size(False)
+        table.set_fontsize(9)  # Slightly smaller font to fit more content
+        table.scale(1.2, 1.8)  # Increased height scaling for better spacing
+        
+        # Style the table
+        for i in range(len(headers)):
+            table[(0, i)].set_facecolor('#4CAF50')
+            table[(0, i)].set_text_props(weight='bold', color='white')
+        
+        # Highlight the total row
+        for i in range(len(headers)):
+            table[(len(table_data), i)].set_facecolor('#2196F3')
+            table[(len(table_data), i)].set_text_props(weight='bold', color='white')
+        
+        plt.title(f'Classification Performance Table{modality_name}', fontsize=14, fontweight='bold', pad=20)
+        
+        # Save plot
+        save_path = save_dir / f'performance_table{modality_name}.png'
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Performance table saved to: {save_path}")
+    
+    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
+        primary(metrics, save_dir, dataset=dataset)
+    else:
+        for input_modality in input_modalities:
+            for output_modality in output_modalities:
+                modality_name = f"_input_{input_modality}_output_{output_modality}"
+                primary(metrics[input_modality][output_modality], save_dir, modality_name, dataset=dataset)
 
 
 class UnprocessPredictionWriter(BasePredictionWriter):

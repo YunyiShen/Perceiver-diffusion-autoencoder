@@ -26,6 +26,10 @@ from daep.utils.test_utils import (
     plot_results_from_scratch,
     plot_metrics_summary,
     save_results,
+    plot_confusion_matrix,
+    calculate_classification_metrics,
+    print_classification_metrics,
+    plot_classification_metrics_summary
 )
 
 # Global device
@@ -87,15 +91,11 @@ def get_best_model(model_dir, test_loader, model_class):
     best_model = None
     
     # Test each of the top 5 models
-    # print('here',top_k_checkpoints)
     for checkpoint_path in top_k_checkpoints:
-        # print('here')
         model = model_class.load_from_checkpoint(checkpoint_path)
         trainer = L.Trainer(logger=False)
         test = trainer.test(model, test_loader)
-        # print(test)
         test_loss = test[0]['test_loss_epoch']
-        # print(f'Checkpoint {checkpoint_path} Test Accuracy: {test_acc}')
         if test_loss < best_loss:
             best_loss = test_loss
             best_model_path = checkpoint_path
@@ -106,6 +106,15 @@ def get_best_model(model_dir, test_loader, model_class):
 def all_subsets(modalities):
     # Generate all non-empty subsets of the input list 'modalities'.
     return list(chain.from_iterable(combinations(modalities, r) for r in range(1, len(modalities)+1)))
+
+def get_starclass_names(dataset):
+    if hasattr(dataset, 'starclass_names'):
+        return list(dataset.starclass_names)
+    else:
+        dataset = dataset.lightcurve_dataset
+        if hasattr(dataset, 'starclass_names'):
+            return list(dataset.starclass_names)
+    raise ValueError("Dataset does not have starclass_names attribute")
 
 def run_tests(
     config_path: str,
@@ -160,7 +169,7 @@ def run_tests(
     if model_type == "reconstructor":
         default_config_path = DEFAULT_CONFIGS_DIR / "config_reconstruction_default.yaml"
     elif model_type == "classifier":
-        default_config_path = DEFAULT_CONFIGS_DIR / "config_classifier_default.yaml"
+        raise NotImplementedError("Use testing_classifier.py for classifier models")
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
     default_config = load_config(default_config_path)
@@ -177,9 +186,6 @@ def run_tests(
     
     all_input_modality_combos = all_subsets(data_types)
     output_modalities = data_types
-    
-    print(all_input_modality_combos)
-    print(output_modalities)
     
     results = get_predictions(model, model_dir, testing_loader, all_input_modality_combos, output_modalities)
     
@@ -202,9 +208,11 @@ def run_tests(
             print("Plotting from scratch...")
             plot_results_from_scratch(results, testing_loader, num_examples, analysis_dir, input_modalities=all_input_modality_combos, output_modalities=output_modalities)
     
-    plot_metrics_summary(metrics, analysis_dir, input_modalities=all_input_modality_combos, output_modalities=output_modalities)
-    print(f"Examples & metrics plotted & saved under: {analysis_dir}")
-
+        plot_metrics_summary(metrics, analysis_dir, input_modalities=all_input_modality_combos, output_modalities=output_modalities)
+        print(f"Examples & metrics plotted & saved under: {analysis_dir}")
+    
+    elif model_type == "classifier":
+        raise NotImplementedError("Use testing_classifier.py for classifier models")
 
 if __name__ == "__main__":
     import fire

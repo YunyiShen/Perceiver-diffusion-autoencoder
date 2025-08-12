@@ -318,14 +318,11 @@ def calculate_classification_metrics(results: Dict[str, np.ndarray], dataset: Da
             'class_names': class_names
         }
     
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        return primary(results)
-    else:
-        all_metrics = {input_modality: {output_modality: None for output_modality in output_modalities} for input_modality in input_modalities}
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                all_metrics[input_modality][output_modality] = primary(results[input_modality][output_modality])
-        return all_metrics
+    all_metrics = {input_modality: {output_modality: None for output_modality in output_modalities} for input_modality in input_modalities}
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            all_metrics[input_modality][output_modality] = primary(results[input_modality][output_modality])
+    return all_metrics
 
 
 def print_classification_metrics(metrics: Dict[str, float], 
@@ -363,13 +360,10 @@ def print_classification_metrics(metrics: Dict[str, float],
             print(f"{class_name}\t\t{class_data['accuracy']:.3f}\t\t{class_data['recall']:.3f}\t\t"
                   f"{class_data['precision']:.3f}\t\t{class_data['f1']:.3f}\t\t{class_data['support']}")
     
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(metrics)
-    else:
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                print(f"=== Input: {input_modality} to Output: {output_modality} ===")
-                primary(metrics[input_modality][output_modality])
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            print(f"=== Input: {input_modality} to Output: {output_modality} ===")
+            primary(metrics[input_modality][output_modality])
 
 
 def plot_confusion_matrix(results: Dict[str, np.ndarray], save_dir: Path, 
@@ -430,13 +424,10 @@ def plot_confusion_matrix(results: Dict[str, np.ndarray], save_dir: Path,
         plt.close()
         print(f"Confusion matrix saved to: {save_path}")
     
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(results, save_dir, dataset=dataset)
-    else:
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                modality_name = f"_input_{input_modality}_output_{output_modality}"
-                primary(results[input_modality][output_modality], save_dir, modality_name, dataset=dataset)
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            modality_name = f"_input_{input_modality}_output_{output_modality}"
+            primary(results[input_modality][output_modality], save_dir, modality_name, dataset=dataset)
 
 
 def plot_classification_metrics_summary(metrics: Dict[str, float], save_dir: Path,
@@ -521,13 +512,10 @@ def plot_classification_metrics_summary(metrics: Dict[str, float], save_dir: Pat
         plt.close()
         print(f"Performance table saved to: {save_path}")
     
-    if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        primary(metrics, save_dir, dataset=dataset)
-    else:
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                modality_name = f"_input_{input_modality}_output_{output_modality}"
-                primary(metrics[input_modality][output_modality], save_dir, modality_name, dataset=dataset)
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            modality_name = f"_input_{input_modality}_output_{output_modality}"
+            primary(metrics[input_modality][output_modality], save_dir, modality_name, dataset=dataset)
 
 
 def save_classification_results(results: Dict[str, np.ndarray], metrics: Dict[str, float], 
@@ -567,20 +555,22 @@ def save_classification_results(results: Dict[str, np.ndarray], metrics: Dict[st
         labels = np.unique(np.concatenate([predictions, ground_truth]))
     
     if len(input_modalities) <= 1 and len(output_modalities) <= 1:
-        # Save results
-        np.save(save_dir / 'predictions.npy', results['predictions'])
-        np.save(save_dir / 'ground_truth.npy', results['ground_truth'])
-        np.save(save_dir / 'prediction_probs.npy', results['prediction_probs'])
-        np.save(save_dir / 'test_instance_idxs.npy', results['test_instance_idxs'])
+        # Save all results and confusion matrix in a single .npz file as a dictionary
+        results_to_save = {
+            'predictions': results['predictions'],
+            'ground_truth': results['ground_truth'],
+            'prediction_probs': results['prediction_probs'],
+            'test_instance_idxs': results['test_instance_idxs'],
+            'confusion_matrix': metrics['confusion_matrix']
+        }
+        np.savez(save_dir / 'classification_results.npz', **results_to_save)
+        # Added: All arrays are now saved in a single .npz file for easier loading and management.
         
-        # Save confusion matrix
-        np.save(save_dir / 'confusion_matrix.npy', metrics['confusion_matrix'])
-        
-        # Save star IDs
+        # Save star IDs as .txt files for easier inspection
         if spectra_or_lightcurves == "spectra":
-            np.save(save_dir / 'sobject_ids.npy', results['sobject_ids'])
+            np.savetxt(save_dir / 'sobject_ids.txt', results['sobject_ids'], fmt='%s')
         elif spectra_or_lightcurves == "lightcurves":
-            np.save(save_dir / 'ticids.npy', results['ticids'])
+            np.savetxt(save_dir / 'ticids.txt', results['ticids'], fmt='%s')
         
         # Save metrics
         with open(save_dir / 'metrics.json', 'w') as f:
@@ -619,71 +609,8 @@ def save_classification_results(results: Dict[str, np.ndarray], metrics: Dict[st
             for class_name, class_data in class_metrics.items():
                 f.write(f"{class_name}\t\t{class_data['accuracy']:.3f}\t\t{class_data['recall']:.3f}\t\t"
                        f"{class_data['precision']:.3f}\t\t{class_data['f1']:.3f}\t\t{class_data['support']}\n")
-            
-    else:
-        # Save multimodal results
-        for input_modality in input_modalities:
-            for output_modality in output_modalities:
-                modality_dir = save_dir / f'input_{input_modality}_output_{output_modality}'
-                modality_dir.mkdir(parents=True, exist_ok=True)
-                
-                modality_results = results[input_modality][output_modality]
-                modality_metrics = metrics[input_modality][output_modality]
-                
-                # Save results
-                np.save(modality_dir / 'predictions.npy', modality_results['predictions'])
-                np.save(modality_dir / 'ground_truth.npy', modality_results['ground_truth'])
-                np.save(modality_dir / 'prediction_probs.npy', modality_results['prediction_probs'])
-                np.save(modality_dir / 'test_instance_idxs.npy', modality_results['test_instance_idxs'])
-                
-                # Save confusion matrix
-                np.save(modality_dir / 'confusion_matrix.npy', modality_metrics['confusion_matrix'])
-                
-                # Save star IDs
-                if output_modality == "spectra":
-                    np.save(modality_dir / 'sobject_ids.npy', modality_results['sobject_ids'])
-                elif output_modality == "lightcurves":
-                    np.save(modality_dir / 'ticids.npy', modality_results['ticids'])
-                
-                # Save metrics
-                with open(modality_dir / 'metrics.json', 'w') as f:
-                    json.dump(modality_metrics, f, indent=2, default=str)
-                
-                # Save detailed classification report with class names if available
-                if dataset is not None and hasattr(dataset, 'starclass_name_to_int'):
-                    target_names = list(dataset.starclass_name_to_int.keys())
-                    report = classification_report(modality_results['ground_truth'], modality_results['predictions'], 
-                                                 target_names=target_names, output_dict=True, zero_division=0, labels=labels)
-                else:
-                    report = classification_report(modality_results['ground_truth'], modality_results['predictions'], 
-                                                 output_dict=True, zero_division=0, labels=labels)
-                with open(modality_dir / 'classification_report.json', 'w') as f:
-                    json.dump(report, f, indent=2)
-                
-                # Save metrics in a more readable format
-                with open(modality_dir / 'performance_table.txt', 'w') as f:
-                    f.write(f"Classification Performance Table - Input: {input_modality}, Output: {output_modality}\n")
-                    f.write("=" * 70 + "\n\n")
-                    
-                    # Write total metrics
-                    total = modality_metrics['total_metrics']
-                    f.write(f"Total Metrics:\n")
-                    f.write(f"Accuracy: {total['accuracy']:.3f}\n")
-                    f.write(f"Recall: {total['recall']:.3f}\n")
-                    f.write(f"Precision: {total['precision']:.3f}\n")
-                    f.write(f"F1: {total['f1']:.3f}\n\n")
-                    
-                    # Write per-class metrics in table format
-                    f.write("Per-Class Performance:\n")
-                    f.write("Class\t\tAccuracy\tRecall\t\tPrecision\tF1\t\tSupport\n")
-                    f.write("-" * 80 + "\n")
-                    
-                    class_metrics = modality_metrics['class_metrics']
-                    for class_name, class_data in class_metrics.items():
-                        f.write(f"{class_name}\t\t{class_data['accuracy']:.3f}\t\t{class_data['recall']:.3f}\t\t"
-                               f"{class_data['precision']:.3f}\t\t{class_data['f1']:.3f}\t\t{class_data['support']}\n")
     
-    print(f"Classification results saved to: {save_dir}")
+        print(f"Classification results saved to: {save_dir}")
 
 
 def run_classification_tests(config_path: str = "config.json", spectra_or_lightcurves: str = "spectra",

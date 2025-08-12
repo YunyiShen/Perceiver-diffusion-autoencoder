@@ -32,7 +32,8 @@ class daepReconstructor(L.LightningModule):
     def training_step(self, batch, batch_idx):
         x = batch
         loss = self.model(x)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        batch_size = self.training_config['batch']
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=batch_size)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -370,54 +371,58 @@ class daepClassifier(L.LightningModule):
         x = batch
         y_pred = self.forward(x)
         y_pred_indices = torch.argmax(y_pred, dim=1)
+        # Ensure targets are class indices for loss/metrics
+        y_actual_indices = y_actual.argmax(dim=1) if y_actual.ndim > 1 else y_actual
+
+        loss = self.loss_fn(y_pred, y_actual_indices)
+        # torchmetrics.Accuracy supports (N,C) logits with (N,) labels
+        acc = self.accuracy(y_pred, y_actual_indices)
         
-        loss = self.loss_fn(y_pred, y_actual)
-        acc = self.accuracy(y_pred_indices, y_actual)
-        
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("train_acc", acc, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        
+        batch_size = self.training_config['batch']
+
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=batch_size)
+        self.log("train_acc", acc, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, batch_size=batch_size)
+
         return loss
-    
+
     def validation_step(self, batch, batch_idx):
         y_actual = batch['starclass']
         x = {k: v for k, v in batch.items() if k != 'starclass'}
         y_pred = self.forward(x)
         y_pred_indices = torch.argmax(y_pred, dim=1)
-        y_actual_indices = torch.argmax(y_actual, dim=1)
-        
-        loss = self.loss_fn(y_pred, y_actual)
-        acc = self.accuracy(y_pred_indices, y_actual)
-        
+        y_actual_indices = y_actual.argmax(dim=1) if y_actual.ndim > 1 else y_actual
+
+        loss = self.loss_fn(y_pred, y_actual_indices)
+        acc = self.accuracy(y_pred, y_actual_indices)
+
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log("val_acc", acc, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        
+
         # Update confusion matrix incrementally per batch
         self.conf_matrix.update(y_pred_indices.to(self.conf_matrix.device), y_actual_indices.to(self.conf_matrix.device))
-        
+
         return loss
-    
+
     def test_step(self, batch, batch_idx):
         y_actual = batch['starclass']
-        y_actual_indices = torch.argmax(y_actual, dim=1)
+        y_actual_indices = y_actual.argmax(dim=1) if y_actual.ndim > 1 else y_actual
         x = batch
         y_pred = self.forward(x)
         y_pred_indices = torch.argmax(y_pred, dim=1)
-        
-        loss = self.loss_fn(y_pred, y_actual)
+
+        loss = self.loss_fn(y_pred, y_actual_indices)
         acc = self.accuracy(y_pred_indices, y_actual_indices)
-        
+
         self.conf_matrix.update(y_pred_indices.to(self.conf_matrix.device), y_actual_indices.to(self.conf_matrix.device))
         self.log("test_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log("test_acc", acc, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        
+
         for i in range(len(y_pred_indices)):
             if y_pred_indices[i] != y_actual_indices[i]:
                 self.misclassified_tests.append((x[i], y_pred[i], y_actual[i]))
-        
+
         return loss
-
-
+    
 class daepClassifierUnimodal(daepClassifier):
     def __init__(self, config, class_weights=None):
         super().__init__()
@@ -426,6 +431,7 @@ class daepClassifierUnimodal(daepClassifier):
         self.data_type = config['data_types'][0]
         self.training_config = config['training']
         self.class_weights = class_weights
+        self.architecture_config = config['unimodal']['architecture']
         self.num_classes = self.architecture_config['classifier']['shape']['num_classes']
         
         self.loss_fn = torch.nn.CrossEntropyLoss(weight=self.class_weights)
@@ -435,7 +441,7 @@ class daepClassifierUnimodal(daepClassifier):
         self.misclassified_tests = []
         self.predicted = []
         
-        architecture_config = self.config['unimodal']['architecture']
+        architecture_config = self.architecture_config
         
         if architecture_config['encoder']['use_pretrained_encoder']:
             pretrained_encoder_dir = Path(architecture_config['encoder']['pretrained']['pretrained_encoder_path'])
@@ -453,30 +459,37 @@ class daepClassifierUnimodal(daepClassifier):
             pretrained_encoder_ckpt_path = checkpoint_files[-1]
             
             # Load the pretrained encoder
-            pretrained_model = torch.load(pretrained_encoder_ckpt_path)
+            try:
+                pretrained = daepReconstructorUnimodal.load_from_checkpoint(pretrained_encoder_ckpt_path)
+            except Exception as e:
+                print(f"Pretrained encoder must be part of a daepReconstructorUnimodal model")
+                raise ValueError(f"Failed to load pretrained encoder from {pretrained_encoder_ckpt_path}: {e}")
+            pretrained_model = pretrained.model
             encoder = pretrained_model.encoder
             print(f"Loaded pretrained encoder from {pretrained_encoder_ckpt_path}")
             
             # Freeze the pretrained encoder parameters if specified
-            if architecture_config['encoder']['freeze_pretrained_encoder']:
+            if architecture_config['encoder']['pretrained']['freeze_pretrained_encoder']:
                 for param in encoder.parameters():
                     param.requires_grad = False
             
             # Load the pretrained encoder config and update the classifier architecture config to match
             with open(pretrained_encoder_dir / "hparams.yaml", "r") as f:
                 pretrained_encoder_config = yaml.safe_load(f)
+                pretrained_encoder_config = pretrained_encoder_config['config']
+                pretrained_architecture_config = pretrained_encoder_config['unimodal']['architecture']
             
-            architecture_config['classifier']['shape']['bottleneckdim'] = pretrained_encoder_config['model']['bottleneckdim']
-            architecture_config['classifier']['shape']['bottlenecklen'] = pretrained_encoder_config['model']['bottlenecklen']
+            architecture_config['classifier']['shape']['bottleneckdim'] = pretrained_architecture_config['shape']['bottleneckdim']
+            architecture_config['classifier']['shape']['bottlenecklen'] = pretrained_architecture_config['shape']['bottlenecklen']
             
             # Update the encoder architecture config to match the pretrained encoder for model_str construction
-            architecture_config['encoder']['new']['shape']['model_dim'] = pretrained_encoder_config['model']['model_dim']
-            architecture_config['encoder']['new']['shape']['encoder_layers'] = pretrained_encoder_config['model']['encoder_layers']
-            architecture_config['encoder']['new']['shape']['encoder_heads'] = pretrained_encoder_config['model']['encoder_heads']
-            architecture_config['encoder']['new']['components']['concat'] = pretrained_encoder_config['model']['concat']
-            architecture_config['encoder']['new']['components']['sinpos_embed'] = pretrained_encoder_config['model']['sinpos_embed']
-            architecture_config['encoder']['new']['components']['fourier_embed'] = pretrained_encoder_config['model']['fourier_embed']
-            architecture_config['encoder']['new']['components']['use_uncertainty'] = pretrained_encoder_config['model']['use_uncertainty']
+            architecture_config['encoder']['new']['shape']['model_dim'] = pretrained_architecture_config['shape']['model_dim']
+            architecture_config['encoder']['new']['shape']['encoder_layers'] = pretrained_architecture_config['shape']['encoder_layers']
+            architecture_config['encoder']['new']['shape']['encoder_heads'] = pretrained_architecture_config['shape']['encoder_heads']
+            architecture_config['encoder']['new']['components']['concat'] = pretrained_architecture_config['components']['concat']
+            architecture_config['encoder']['new']['components']['sinpos_embed'] = pretrained_architecture_config['components']['sinpos_embed']
+            architecture_config['encoder']['new']['components']['fourier_embed'] = pretrained_architecture_config['components']['fourier_embed']
+            architecture_config['encoder']['new']['components']['use_uncertainty'] = pretrained_architecture_config['components']['use_uncertainty']
             
         else:
             # Initialize a new encoder
@@ -549,7 +562,7 @@ class daepClassifierUnimodal(daepClassifier):
         
         # Classifier-specific parameters
         model_str += f"classifier_dropout{self.architecture_config['classifier']['components']['classifier_dropout']}-"
-        model_str += f"num_classes{self.architecture_config['classifier']['components']['num_classes']}_"
+        model_str += f"num_classes{self.architecture_config['classifier']['shape']['num_classes']}_"
         
         # Encoder components
         model_str += f"concat{self.architecture_config['encoder']['new']['components']['concat']}_"
@@ -558,7 +571,7 @@ class daepClassifierUnimodal(daepClassifier):
         model_str += f"use_uncertainty{self.architecture_config['encoder']['new']['components']['use_uncertainty']}_"
         
         # Classifier components
-        model_str += f"regularize{self.architecture_config['classifier']['regularize']}_"
+        model_str += f"regularize{self.architecture_config['classifier']['components']['regularize']}_"
         
         # Optimizer parameters
         model_str += f"lr{self.training_config['lr']}_"
@@ -578,6 +591,7 @@ class daepClassifierMultimodal(daepClassifier):
         
         self.training_config = config['training']
         self.class_weights = class_weights
+        self.architecture_config = config['multimodal']['architecture']
         self.num_classes = self.architecture_config['classifier']['shape']['num_classes']
         
         self.loss_fn = torch.nn.CrossEntropyLoss(weight=self.class_weights)
@@ -587,7 +601,7 @@ class daepClassifierMultimodal(daepClassifier):
         self.misclassified_tests = []
         self.predicted = []
         
-        architecture_config = self.config['multimodal']['architecture']
+        architecture_config = self.architecture_config
         
         if architecture_config['encoder']['use_pretrained_encoder']:
             pretrained_encoder_dir = Path(architecture_config['encoder']['pretrained']['pretrained_encoder_path'])
@@ -605,7 +619,12 @@ class daepClassifierMultimodal(daepClassifier):
             pretrained_encoder_ckpt_path = checkpoint_files[-1]
             
             # Load the pretrained encoder
-            pretrained_model = torch.load(pretrained_encoder_ckpt_path)
+            try:
+                pretrained_model = daepReconstructorMultimodal.load_from_checkpoint(pretrained_encoder_ckpt_path)
+            except Exception as e:
+                print(f"Pretrained encoder must be part of a daepReconstructorMultimodal model")
+                raise ValueError(f"Failed to load pretrained encoder from {pretrained_encoder_ckpt_path}: {e}")
+            
             spectra_tokenizer = pretrained_model.tokenizers["spectra"]
             photometry_tokenizer = pretrained_model.tokenizers["photometry"]
             encoder = pretrained_model.encoder
@@ -623,21 +642,23 @@ class daepClassifierMultimodal(daepClassifier):
             # Load the pretrained encoder config and update the classifier architecture config to match
             with open(pretrained_encoder_dir / "hparams.yaml", "r") as f:
                 pretrained_encoder_config = yaml.safe_load(f)
+                pretrained_encoder_config = pretrained_encoder_config['config']
+                pretrained_architecture_config = pretrained_encoder_config['multimodal']['architecture']
             
-            architecture_config['classifier']['shape']['bottleneckdim'] = pretrained_encoder_config['model']['bottleneckdim']
-            architecture_config['classifier']['shape']['bottlenecklen'] = pretrained_encoder_config['model']['bottlenecklen']
+            architecture_config['classifier']['shape']['bottleneckdim'] = pretrained_architecture_config['shape']['bottleneckdim']
+            architecture_config['classifier']['shape']['bottlenecklen'] = pretrained_architecture_config['shape']['bottlenecklen']
             
             # Update the encoder architecture config to match the pretrained encoder for model_str construction
-            architecture_config['encoder']['new']['shape']['model_dim'] = pretrained_encoder_config['model']['model_dim']
-            architecture_config['encoder']['new']['shape']['encoder_layers'] = pretrained_encoder_config['model']['encoder_layers']
-            architecture_config['encoder']['new']['shape']['encoder_heads'] = pretrained_encoder_config['model']['encoder_heads']
-            architecture_config['encoder']['new']['shape']['spectra_tokens'] = pretrained_encoder_config['model']['spectra_tokens']
-            architecture_config['encoder']['new']['shape']['photometry_tokens'] = pretrained_encoder_config['model']['photometry_tokens']
-            architecture_config['encoder']['new']['components']['dropping_prob'] = pretrained_encoder_config['model']['dropping_prob']
-            architecture_config['encoder']['new']['components']['concat'] = pretrained_encoder_config['model']['concat']
-            architecture_config['encoder']['new']['components']['sinpos_embed'] = pretrained_encoder_config['model']['sinpos_embed']
-            architecture_config['encoder']['new']['components']['fourier_embed'] = pretrained_encoder_config['model']['fourier_embed']
-            architecture_config['encoder']['new']['components']['use_uncertainty'] = pretrained_encoder_config['model']['use_uncertainty']
+            architecture_config['encoder']['new']['shape']['model_dim'] = pretrained_architecture_config['shape']['model_dim']
+            architecture_config['encoder']['new']['shape']['encoder_layers'] = pretrained_architecture_config['shape']['encoder_layers']
+            architecture_config['encoder']['new']['shape']['encoder_heads'] = pretrained_architecture_config['shape']['encoder_heads']
+            architecture_config['encoder']['new']['shape']['spectra_tokens'] = pretrained_architecture_config['shape']['spectra_tokens']
+            architecture_config['encoder']['new']['shape']['photometry_tokens'] = pretrained_architecture_config['shape']['photometry_tokens']
+            architecture_config['encoder']['new']['components']['dropping_prob'] = pretrained_architecture_config['components']['dropping_prob']
+            architecture_config['encoder']['new']['components']['concat'] = pretrained_architecture_config['components']['concat']
+            architecture_config['encoder']['new']['components']['sinpos_embed'] = pretrained_architecture_config['components']['sinpos_embed']
+            architecture_config['encoder']['new']['components']['fourier_embed'] = pretrained_architecture_config['components']['fourier_embed']
+            architecture_config['encoder']['new']['components']['use_uncertainty'] = pretrained_architecture_config['components']['use_uncertainty']
             
         else:
             # Initialize a new encoder

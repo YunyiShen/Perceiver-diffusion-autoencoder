@@ -85,9 +85,8 @@ class TESSDataset(Dataset):
         # self.starclass_name_to_int = {'INSTRUMENT': 0, 'APERIODIC': 1, 'CONSTANT': 2, 'CONTACT_ROT': 3,
         #                              'DSCT_BCEP': 4, 'ECLIPSE': 5, 'GDOR_SPB': 6, 'RRLYR_CEPHEID': 7,
         #                              'SOLARLIKE': 8}
-        self.starclass_name_to_int = {'APERIODIC': 0, 'CONSTANT': 1, 'CONTACT_ROT': 2,
-                                     'DSCT_BCEP': 3, 'ECLIPSE': 4, 'GDOR_SPB': 5, 'RRLYR_CEPHEID': 6,
-                                     'SOLARLIKE': 7}
+        self.starclass_names = ['APERIODIC', 'CONSTANT', 'CONTACT_ROT', 'DSCT_BCEP', 'ECLIPSE', 'GDOR_SPB', 'RRLYR_CEPHEID', 'SOLARLIKE']
+        self.starclass_name_to_int = {name: i for i, name in enumerate(self.starclass_names)}
         self.starclass_int_to_name = {v: k for k, v in self.starclass_name_to_int.items()}
         self.num_starclasses = len(self.starclass_name_to_int)
         

@@ -6,11 +6,18 @@ data:
   data_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/
   models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
 
+model_type: null
+test_name: tessv1      # Name of test, to organize models and results
+data_types: [lightcurves]    # Types of datasets (i.e. spectra, lightcurves)
+data_names: [tessv1]   # Names of datasets, corresponding to data_types
+train_from_checkpoint: true
+checkpoint_path: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tessv1/daep_classifier_unimodal_lightcurves/dim_16-16-4-4-256_classifier_dropout0.1-num_classes8_concatTrue_sinposTrue_fourierFalse_use_uncertaintyFalse_regularize0.0_lr0.00025_weight_decay1e-5_date2025-08-11_15-28/checkpoints/epoch=40-val_loss=1.97.ckpt
+
 training:
   epochs: 50
-  lr: 2.5e-4
+  lr: 1e-4
   weight_decay: 1e-5
-  batch: 4
+  batch: 8
   save_every: 5
   aug: null
   accelerator: 'cuda'
