@@ -274,6 +274,9 @@ class daepReconstructorMultimodal(daepReconstructor):
 
     def reconstruct(self, x, input_modalities: list[str], output_modality: str):
         reconstructed = self.model.reconstruct(x, condition_keys=input_modalities, out_keys=[output_modality])
+        # If the model is multimodal, extract the output_modality from the reconstructed result.
+        if isinstance(reconstructed, dict) and output_modality in reconstructed:
+            reconstructed = reconstructed[output_modality]
         if self.architecture_config['components']['use_uncertainty']:
             pred_flux, pred_flux_uncertainty = reconstructed
             pred_flux = pred_flux['flux']
@@ -544,8 +547,6 @@ class daepClassifierUnimodal(daepClassifier):
     def predict_step(self, batch):
         x = batch
         y_pred = self.forward(x)
-        for i in range(len(y_pred)):
-            self.predicted.append((x[i], y_pred[i]))
         return y_pred
 
     def model_name(self):

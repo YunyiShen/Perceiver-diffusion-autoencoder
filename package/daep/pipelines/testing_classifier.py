@@ -37,6 +37,7 @@ from daep.utils.test_utils import (
     plot_classification_metrics_summary,
     save_classification_results,
 )
+from daep.utils.test_callbacks import ClassifierPredictionWriter
 
 # Global device
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -73,138 +74,48 @@ def extract_targets_from_batch(batch, device):
 
 
 def evaluate_classifier_model(model: L.LightningModule,
-                              test_loader, test_dataset,
+                              test_loader,
                               input_modalities: list,
                               output_modalities: list) -> Dict[str, np.ndarray]:
     """
-    Evaluate the classifier model on test data and generate predictions.
-    
+    Evaluate the classifier model on test data for each input/output modality pair.
+
     Parameters
     ----------
     model : L.LightningModule
-        Trained classifier model
+        Trained classifier Lightning module (unimodal or multimodal).
     test_loader : DataLoader
-        DataLoader for test data
-    test_dataset : Dataset
-        Test dataset for getting actual labels
-    input_modalities : list
-        List of input modalities
-    output_modalities : list
-        List of output modalities (same as input for classification)
-    
+        Prediction dataloader.
+    input_modalities : list of str | list of list[str] | list of tuple[str, ...]
+        Conditioning modalities per run (e.g., ["spectra", "lightcurves", "both"]) or
+        combinations returned by `all_subsets`.
+    output_modalities : list[str]
+        Output modalities to evaluate. For classification this is used for naming
+        star-id fields in the results.
+
     Returns
     -------
     dict
-        Dictionary containing predictions, ground truth, and metadata
+        Nested results keyed by input and output modality, containing:
+        - predictions: np.ndarray of predicted class indices
+        - ground_truth: np.ndarray of ground truth class indices
+        - prediction_probs: np.ndarray of class probabilities
+        - test_instance_idxs: np.ndarray of dataset indices
+        - sobject_ids or ticids: list of star IDs depending on output modality
     """
-    def eval_classifier_for_modality(model, test_loader, test_dataset, input_modalities, output_modality):
-        model.eval()
-        model = model.to(device)
-        base_model = getattr(model, "model", model).to(device)
-        all_predictions = []
-        all_ground_truth = []
-        all_prediction_probs = []
-        all_test_instance_idxs = []
-        all_star_ids = []
-        
-        with torch.no_grad():
-            for batch in tqdm(test_loader, desc="Generating predictions", unit="batch"):
-                model_input, targets = extract_targets_from_batch(batch, device)
-                
-                if model_input is None:
-                    continue
-                
-                # Generate predictions
-                if isinstance(base_model, unimodaldaepclassifier):
-                    prediction_probs = base_model(model_input)
-                elif isinstance(base_model, multimodaldaepclassifier):
-                    alt_modalities_dict = {"spectra": ["spectra"], "lightcurves": ["photometry"], "both": ["spectra", "photometry"]}
-                    condition_keys = alt_modalities_dict[input_modalities]
-                    prediction_probs = base_model.predict(model_input, condition_keys=condition_keys)
-                
-                # Convert to numpy
-                prediction_probs = prediction_probs.cpu().numpy()
-                targets = targets.cpu().numpy()
-                
-                # Get predicted class (argmax of probabilities)
-                predicted_classes = np.argmax(prediction_probs, axis=1)
-                
-                # Get ground truth class indices
-                if len(targets.shape) > 1 and targets.shape[1] > 1:
-                    # One-hot encoded targets
-                    ground_truth_classes = np.argmax(targets, axis=1)
-                else:
-                    # Single class labels
-                    ground_truth_classes = targets.flatten()
-                
-                # Ensure both are 1D arrays
-                predicted_classes = predicted_classes.flatten()
-                ground_truth_classes = ground_truth_classes.flatten()
-                
-                # Get test instance indices
-                try:
-                    test_instance_idx = batch['idx'].cpu().numpy()
-                except KeyError:
-                    if 'photometry' in batch:
-                        test_instance_idx = batch['photometry']['lightcurve_idx'].cpu().numpy()
-                    elif 'spectra' in batch:
-                        test_instance_idx = batch['spectra']['spectra_idx'].cpu().numpy()
-                    else:
-                        raise ValueError(f"No 'idx' or 'lightcurve_idx' key in batch")
-                
-                # Get star IDs for each item in the batch
-                star_ids_batch = []
-                for i, idx in enumerate(test_instance_idx):
-                    if hasattr(test_dataset, 'get_actual_spectrum'):
-                        actual_test_instance = test_dataset.get_actual_spectrum(idx)
-                    elif hasattr(test_dataset, 'get_actual_lightcurve'):
-                        actual_test_instance = test_dataset.get_actual_lightcurve(idx)
-                    elif hasattr(test_dataset, 'spectra_dataset') and hasattr(test_dataset, 'lightcurve_dataset'):
-                        if output_modality == "spectra":
-                            actual_test_instance = test_dataset.spectra_dataset.get_actual_spectrum(idx)
-                        elif output_modality == "lightcurves":
-                            actual_test_instance = test_dataset.lightcurve_dataset.get_actual_lightcurve(idx)
-                    else:
-                        raise ValueError("Test dataset not found")
-                    star_ids_batch.append(actual_test_instance['ids'][2])  # sobject_id/TICID is in column 2
-                
-                all_test_instance_idxs.append(test_instance_idx)
-                all_predictions.append(predicted_classes)
-                all_ground_truth.append(ground_truth_classes)
-                all_prediction_probs.append(prediction_probs)
-                all_star_ids.extend(star_ids_batch)
-        
-        predictions = np.concatenate(all_predictions, axis=0)
-        ground_truth = np.concatenate(all_ground_truth, axis=0)
-        prediction_probs = np.concatenate(all_prediction_probs, axis=0)
-        test_instance_idxs = np.concatenate(all_test_instance_idxs, axis=0)
-        star_ids = all_star_ids
-        
-        results = {
-            'predictions': predictions,
-            'ground_truth': ground_truth,
-            'prediction_probs': prediction_probs,
-            'test_instance_idxs': test_instance_idxs,
-        }
-        
-        if output_modality == "spectra":
-            results['sobject_ids'] = star_ids
-        elif output_modality == "lightcurves":
-            results['ticids'] = star_ids
-        
-        return results
 
-    all_results = {input_modality: {output_modality: None for output_modality in output_modalities} for input_modality in input_modalities}
-    
-    for input_modality in input_modalities:
-        for output_modality in output_modalities:
-            all_results[input_modality][output_modality] = eval_classifier_for_modality(
-                model, test_loader, test_dataset, 
-                input_modalities=input_modality,
-                output_modality=output_modality
-            )
-    
-    return all_results
+    results: Dict[str, Dict[str, Dict[str, Any]]] = {
+        in_mod: {out_mod: None for out_mod in output_modalities} for in_mod in input_modalities
+    }
+
+    for in_mod in input_modalities:
+        for out_mod in output_modalities:
+            writer = ClassifierPredictionWriter(input_modalities=in_mod, output_modality=out_mod, write_interval="batch")
+            trainer = L.Trainer(logger=False, enable_checkpointing=False, enable_model_summary=False, callbacks=[writer])
+            trainer.predict(model=model, dataloaders=test_loader)
+            results[in_mod][out_mod] = writer.to_results(output_modality=out_mod)
+
+    return results
 
 def run_classification_tests(config_path: str,
                             plot_from_saved: bool = False,
@@ -273,7 +184,7 @@ def run_classification_tests(config_path: str,
 
     # Run evaluation
     print("Evaluating classifier model...")
-    results = evaluate_classifier_model(model, testing_loader, test_dataset, input_modality_combos, output_modalities)
+    results = evaluate_classifier_model(model, testing_loader, input_modality_combos, output_modalities)
     
     # Metrics
     print("Calculating classification metrics...")
