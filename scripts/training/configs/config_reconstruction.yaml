@@ -6,37 +6,36 @@ data:
   data_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/
   models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
 
-test_name: galah_20k      # Name of test, to organize models and results
-data_types: [spectra]    # Types of datasets (i.e. spectra, lightcurves)
-data_names: [galah_20k]   # Names of datasets, corresponding to data_types
+test_name: tess_20k      # Name of test, to organize models and results
+data_types: [lightcurves]    # Types of datasets (i.e. spectra, lightcurves)
+data_names: [tess_20k]   # Names of datasets, corresponding to data_types
 train_from_checkpoint: false
 checkpoint_path: null
 
 training:
-  epochs: 300
-  lr: null
-  weight_decay: null
+  epochs: 1000
+  lr: 2.5e-4
+  weight_decay: 1e-5
   batch: 16
-  save_every: null
   aug: null
   accelerator: null
 
 unimodal:
   architecture:
     shape:
-      bottlenecklen: null
-      bottleneckdim: null
-      model_dim: null
+      bottlenecklen: 1
+      bottleneckdim: 128
+      model_dim: 128
       encoder_layers: null
       decoder_layers: null
-      encoder_heads: null
+      encoder_heads: 8
       decoder_heads: null
     components:
       concat: null
       cross_attn_only: null
       regularize: null
-      sinpos_embed: null
-      fourier_embed: null
+      sinpos_embed: false
+      fourier_embed: true
       use_uncertainty: null
 
 multimodal:
@@ -51,14 +50,15 @@ multimodal:
       decoder_heads: null
       spectra_tokens: null
       photometry_tokens: null
-      dropping_prob: null
     components:
+      dropping_prob: null
       concat: null
       cross_attn_only: null
       mixer_selfattn: null
       regularize: null
       sinpos_embed: null
       fourier_embed: null
+      use_uncertainty: null
 
 testing:
   checkpoint_dir_path: null

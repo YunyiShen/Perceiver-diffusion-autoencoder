@@ -52,14 +52,15 @@ multimodal:
       decoder_heads: 4
       spectra_tokens: 256
       photometry_tokens: 256
-      dropping_prob: 0.2
     components:
+      dropping_prob: 0.2
       concat: true
       cross_attn_only: false
       mixer_selfattn: true
       regularize: 0.00
       sinpos_embed: true
       fourier_embed: false
+      use_uncertainty: false
 
 testing:
   model_dir: null   # Override with model directory (containing ./checkpoints and ./hparams.yaml)

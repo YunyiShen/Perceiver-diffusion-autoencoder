@@ -74,6 +74,8 @@ def create_dataloader(config, data_types, data_names, train=True, subset_size=No
     
     if subset_size is not None:
         np.random.seed(42)
+        if subset_size <= 0:
+            subset_size = len(full_dataset)
         dataset = Subset(full_dataset, np.random.choice(len(full_dataset), subset_size, replace=False))
     else:
         dataset = full_dataset

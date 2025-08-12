@@ -7,9 +7,9 @@ data:
   models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
 
 model_type: null
-test_name: galah_1k      # Name of test, to organize models and results
-data_types: [spectra]    # Types of datasets (i.e. spectra, lightcurves)
-data_names: [galah_1k]   # Names of datasets, corresponding to data_types
+test_name: tessgalah_1k      # Name of test, to organize models and results
+data_types: [lightcurves, spectra]    # Types of datasets (i.e. spectra, lightcurves)
+data_names: [tess_1k, galah_1k]   # Names of datasets, corresponding to data_types
 train_from_checkpoint: false
 checkpoint_path: null
 
@@ -18,7 +18,6 @@ training:
   lr: null
   weight_decay: null
   batch: 4
-  save_every: null
   aug: null
   accelerator: null
 
@@ -52,14 +51,15 @@ multimodal:
       decoder_heads: null
       spectra_tokens: null
       photometry_tokens: null
-      dropping_prob: null
     components:
+      dropping_prob: null
       concat: null
       cross_attn_only: null
       mixer_selfattn: null
       regularize: null
       sinpos_embed: null
       fourier_embed: null
+      use_uncertainty: null
 
 testing:
   checkpoint_dir_path: null

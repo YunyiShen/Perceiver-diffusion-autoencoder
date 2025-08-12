@@ -81,6 +81,7 @@ multimodal:
           regularize: 0.00
           sinpos_embed: true
           fourier_embed: false
+          use_uncertainty: false
 
 testing:
   model_dir: null   # Override with model directory (containing ./checkpoints and ./hparams.yaml)

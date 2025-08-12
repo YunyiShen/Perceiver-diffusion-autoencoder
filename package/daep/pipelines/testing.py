@@ -1,5 +1,3 @@
-import json
-import re
 from pathlib import Path
 from typing import Dict, Optional
 from itertools import chain, combinations
@@ -16,20 +14,16 @@ from daep.LitWrapperAll import (
     daepClassifierMultimodal,
 )
 from daep.datasets.dataloaders import create_dataloader
-from daep.data_util import to_device
 from daep.utils.general_utils import load_config, update_config
-from daep.pipelines.training import initialize_model
+from daep.utils.test_callbacks import UnprocessPredictionWriter
 from daep.utils.test_utils import (
-    UnprocessPredictionWriter,
     calculate_metrics,
     plot_results_from_saved,
     plot_results_from_scratch,
     plot_metrics_summary,
     save_results,
-    plot_confusion_matrix,
-    calculate_classification_metrics,
-    print_classification_metrics,
-    plot_classification_metrics_summary
+    get_best_model,
+    all_subsets,
 )
 
 # Global device
@@ -81,40 +75,6 @@ def get_predictions(model, model_dir, testing_loader, input_modalities, output_m
             print(f"=== Getting predictions for input modalities: {input_modality} to output modality: {output_modality} ===")
             results[input_modality][output_modality] = get_predictions_for_modality(input_modality, output_modality)
     return results
-
-def get_best_model(model_dir, test_loader, model_class):
-    ckpt_dir = model_dir / "checkpoints"
-    top_k_checkpoints = list(ckpt_dir.glob("*.ckpt"))
-    
-    best_loss = float('inf')
-    best_model_path = None
-    best_model = None
-    
-    # Test each of the top 5 models
-    for checkpoint_path in top_k_checkpoints:
-        model = model_class.load_from_checkpoint(checkpoint_path)
-        trainer = L.Trainer(logger=False)
-        test = trainer.test(model, test_loader)
-        test_loss = test[0]['test_loss_epoch']
-        if test_loss < best_loss:
-            best_loss = test_loss
-            best_model_path = checkpoint_path
-            best_model = model
-    print(f"Using checkpoint: {best_model_path}")
-    return best_model
-
-def all_subsets(modalities):
-    # Generate all non-empty subsets of the input list 'modalities'.
-    return list(chain.from_iterable(combinations(modalities, r) for r in range(1, len(modalities)+1)))
-
-def get_starclass_names(dataset):
-    if hasattr(dataset, 'starclass_names'):
-        return list(dataset.starclass_names)
-    else:
-        dataset = dataset.lightcurve_dataset
-        if hasattr(dataset, 'starclass_names'):
-            return list(dataset.starclass_names)
-    raise ValueError("Dataset does not have starclass_names attribute")
 
 def run_tests(
     config_path: str,
@@ -182,7 +142,7 @@ def run_tests(
     
     # Load best model
     print(f"Testing all checkpoints in {model_dir} to determine best model")
-    model = get_best_model(model_dir, testing_loader, model_class)
+    model = get_best_model(model_dir, testing_loader, model_class, use_val_loss=True)
     
     all_input_modality_combos = all_subsets(data_types)
     output_modalities = data_types

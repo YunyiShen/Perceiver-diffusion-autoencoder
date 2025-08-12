@@ -2,8 +2,8 @@ env: local
 
 testing:  
   # Override with model directory (containing ./checkpoints and ./hparams.yaml)
-  model_dir: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/galah_1k/daep_reconstructor_unimodal_spectra/dim_16-16-4-4-4-4-256_uncertFalse_concatTrue_lr0.00025_weight_decay1e-5_date2025-08-11_13-13
-  num_test_instances: 5
+  model_dir: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tessv1/daep_classifier_unimodal_lightcurves/fromscratch_dim_16-16-4-4-256_classifier_dropout0.1-num_classes8_concatTrue_sinposTrue_fourierFalse_use_uncertaintyFalse_regularize0.0_lr1e-4_weight_decay1e-5_date2025-08-11_23-18
+  num_test_instances: -1
   num_samples: null
   num_examples: 5
   save_results: null

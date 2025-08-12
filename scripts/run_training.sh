@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH -J train_galah_20k
-#SBATCH -o train_galah_20k_%j.out
-#SBATCH -e train_galah_20k_%j.err
+#SBATCH -J train_tess_20k_photclassifier
+#SBATCH -o train_tess_20k_photclassifier_%j.out
+#SBATCH -e train_tess_20k_photclassifier_%j.err
 #SBATCH --gres=gpu:4
 #SBATCH --gpus-per-node=4
 #SBATCH --nodes=1

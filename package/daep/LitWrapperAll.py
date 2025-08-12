@@ -418,7 +418,7 @@ class daepClassifier(L.LightningModule):
 
         for i in range(len(y_pred_indices)):
             if y_pred_indices[i] != y_actual_indices[i]:
-                self.misclassified_tests.append((x[i], y_pred[i], y_actual[i]))
+                self.misclassified_tests.append((x['idx'][i], y_pred[i], y_actual[i]))
 
         return loss
     
