@@ -434,8 +434,8 @@ class TESSDatasetProcessed(TESSDataset):
             # Normalize time to start at 0.0001
             t_normalized = time_clean - time_clean[0] + 0.0001
             
-            # Detrend flux using Gaussian filter (sigma=61)
-            flux_detrended = flux_clean - gaussian_filter1d(flux_clean, 61)
+            # Detrend flux using Gaussian filter (sigma=150)
+            flux_detrended = flux_clean - gaussian_filter1d(flux_clean, 150)
             # flux_detrended = flux_clean
             
             # Normalize flux to zero mean and unit std
@@ -505,7 +505,7 @@ class TESSDatasetProcessed(TESSDataset):
         flux_orig = flux * stds + medians
         
         # Reverse detrending
-        flux_orig = flux_orig + gaussian_filter1d(actual_fluxes, 61)
+        flux_orig = flux_orig + gaussian_filter1d(actual_fluxes, 150)
         
         # Reverse time normalization: time_orig = time_norm - 0.0001
         time_orig = time - 0.0001
