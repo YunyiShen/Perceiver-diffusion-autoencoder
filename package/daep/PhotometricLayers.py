@@ -1,8 +1,8 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from .util_layers import *
-from .Perceiver import PerceiverEncoder, PerceiverDecoder, PerceiverDecoder2stages
+from daep.util_layers import *
+from daep.Perceiver import PerceiverEncoder, PerceiverDecoder, PerceiverDecoder2stages, PerceiverEncoder2stages
 
 
 
@@ -299,6 +299,70 @@ class photometricTransceiverEncoder(nn.Module):
         x = self.photometry_embd(flux, time, band)
         return self.encoder(x, mask) 
 
+
+# this will generate bottleneck, in encoder
+class photometricTransceiverEncoder2stages(nn.Module):
+    def __init__(self,
+                 num_bands, 
+                 bottleneck_length,
+                 bottleneck_dim,
+                 hidden_len = 256,
+                 model_dim = 256, 
+                 num_heads = 8, 
+                 ff_dim = 256,
+                 num_layers = 4,
+                 dropout=0.1,
+                 selfattn=False, 
+                 concat = True,
+                 fourier = False
+                 ):
+        '''
+        Transceiver encoder for photometry with two stage perceiver IO, with cross attention pooling
+        Args:
+            num_bands: number of bands, currently embedded as class
+            bottleneck_length: LCs are encoded as a sequence of size [bottleneck_length, bottleneck_dim]
+            bottleneck_dim: LCs are encoded as a sequence of size [bottleneck_length, bottleneck_dim]
+            hidden_len: length of the hidden sequence in perceiver IO
+            model_dim: dimension the transformer should operate 
+            num_heads: number of heads in the multiheaded attention
+            ff_dim: dimension of the MLP hidden layer in transformer
+            num_layers: number of transformer blocks
+            dropout: drop out in transformer
+            selfattn: if we want self attention to the given LC
+            concat: how to construct flux, band and time joint embedding. If True, we separately embedding them, concatenate at the last dimension then project using a small MLP to model dimension, otherwise they are separately embedded and added
+        '''
+        super(photometricTransceiverEncoder2stages, self).__init__()
+        self.encoder = PerceiverEncoder2stages(bottleneck_length,
+                 bottleneck_dim,
+                 hidden_len,
+                 model_dim, 
+                 num_heads, 
+                 num_layers,
+                 ff_dim, 
+                 dropout, 
+                 selfattn)
+        if concat:
+            self.photometry_embd = photometryEmbeddingConcat(num_bands, model_dim, fourier)
+        else:
+            self.photometry_embd = photometryEmbedding(num_bands, model_dim, fourier)
+        self.model_dim = model_dim
+        self.bottleneck_length = bottleneck_length
+        self.bottleneck_dim = bottleneck_dim
+
+    def forward(self, x):
+        '''
+        Args:
+            flux: flux (potentially transformed) of the photometry being taken [batch_size, photometry_length]
+            time: time (potentially transformed) of the photometry being taken [batch_size, photometry_length]
+            band: band of the photometry being taken [batch_size, photometry_length]
+        Return:
+            encoding of size [batch_size, bottleneck_length, bottleneck_dim]
+
+        '''
+        flux, time, mask = x['flux'], x['time'],  x['mask']
+        band = x.get("band")
+        x = self.photometry_embd(flux, time, band)
+        return self.encoder(x, mask) 
 
 # self.classifier = LCC(emb_d=transformer_kwargs['emb'], num_heads=transformer_kwargs['heads'], layers=transformer_kwargs['layers'], dropout_p=transformer_kwargs['dropout_p'], ffn_d=transformer_kwargs['hidden'], num_classes=transformer_kwargs['num_classes'])
 

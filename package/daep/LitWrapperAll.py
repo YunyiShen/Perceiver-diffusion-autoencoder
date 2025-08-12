@@ -11,7 +11,7 @@ from pathlib import Path
 from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScore2stages
 from daep.PhotometricLayers import photometricTransceiverEncoder, photometricTransceiverScore2stages
 from daep.Perceiver import PerceiverEncoder
-from daep.Classifier import LCC
+from daep.Classifier import LCC, PhotClassifier
 from daep.daep import unimodaldaep, multimodaldaep, modality_drop, unimodaldaepclassifier, multimodaldaepclassifier
 from functools import partial
 
@@ -25,7 +25,7 @@ class daepReconstructor(L.LightningModule):
     
     def configure_optimizers(self):
         print(self.training_config['weight_decay'])
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.training_config['lr'], 
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=float(self.training_config['lr']), 
                                       weight_decay=float(self.training_config['weight_decay']))
         return [optimizer]
     
@@ -225,7 +225,6 @@ class daepReconstructorMultimodal(daepReconstructor):
                 num_heads = architecture_config["shape"]["encoder_heads"],
                 sinpos = architecture_config["components"]["sinpos_embed"],
                 fourier=architecture_config["components"]["fourier_embed"],
-                output_uncertainty=architecture_config["components"]["use_uncertainty"]
             )
         }
         encoder = PerceiverEncoder(
@@ -359,7 +358,7 @@ class daepClassifier(L.LightningModule):
         super().__init__()
         
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.training_config['lr'], 
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=float(self.training_config['lr']), 
                                       weight_decay=float(self.training_config['weight_decay']))
         return [optimizer]
     
@@ -516,6 +515,8 @@ class daepClassifierUnimodal(daepClassifier):
                     sinpos=architecture_config["encoder"]["new"]["components"]["sinpos_embed"],
                     fourier=architecture_config["encoder"]["new"]["components"]["fourier_embed"],
                 )
+                # Classifier does not use uncertainty
+                architecture_config['encoder']['new']['components']['use_uncertainty'] = False
             
             # Update the classifier architecture config to match the encoder
             architecture_config['classifier']['shape']['bottleneckdim'] = architecture_config["encoder"]["new"]["shape"]["bottleneckdim"]
@@ -551,8 +552,16 @@ class daepClassifierUnimodal(daepClassifier):
         return f"daep_classifier_unimodal_{self.data_type}"
     
     def model_instance_str(self):
-        model_str = f"dim_"
-        
+        if self.architecture_config['encoder']['use_pretrained_encoder']:
+            model_str = "pretrained_"
+            if self.architecture_config['encoder']['pretrained']['freeze_pretrained_encoder']:
+                model_str += "frozen_"
+            else:
+                model_str += "unfrozen_"
+        else:
+            model_str = "fromscratch_"
+        model_str += f"dim_"
+                
         # Classifier and encoder shape parameters
         model_str += f"{self.architecture_config['classifier']['shape']['bottlenecklen']}-"
         model_str += f"{self.architecture_config['classifier']['shape']['bottleneckdim']}-"
@@ -732,7 +741,15 @@ class daepClassifierMultimodal(daepClassifier):
         return f"daep_classifier_unimodal_{self.data_type}"
     
     def model_instance_str(self):
-        model_str = f"dim_"
+        if self.architecture_config['encoder']['use_pretrained_encoder']:
+            model_str = "pretrained_"
+            if self.architecture_config['encoder']['pretrained']['freeze_pretrained_encoder']:
+                model_str += "frozen_"
+            else:
+                model_str += "unfrozen_"
+        else:
+            model_str = "fromscratch_"
+        model_str += f"dim_"
         
         # Classifier and encoder shape parameters
         model_str += f"{self.architecture_config['classifier']['shape']['bottlenecklen']}-"
@@ -776,3 +793,133 @@ def _convert_modalities(modalities: list[str]) -> list[str]:
         return tuple([mapping[modality] for modality in modalities])
     else:
         raise ValueError(f"Invalid modalities type: {type(modalities)}")
+
+
+class PhotClassifierUnimodal(daepClassifier):
+    """
+    Lightning wrapper for the photometric classifier using a two-stage photometric encoder.
+
+    Parameters
+    ----------
+    config : dict
+        Configuration dictionary. Expected keys mirror the unimodal architecture in `LitWrapperAll`:
+        - ``"training"``: optimizer/lr/weight_decay/batch
+        - ``"unimodal" -> "architecture" -> "shape"``:
+            ``bottlenecklen``, ``bottleneckdim``, ``model_dim``, ``encoder_heads``, ``encoder_layers``
+        - ``"unimodal" -> "architecture" -> "components"``:
+            ``concat``, ``fourier_embed`` (and optionally ``sinpos_embed``)
+        - ``"unimodal" -> "architecture" -> "classifier" -> "shape"``:
+            ``num_classes``
+    class_weights : torch.Tensor | None
+        Optional class weights for `CrossEntropyLoss`.
+    """
+    def __init__(self, config, class_weights=None):
+        super().__init__()
+        self.save_hyperparameters()
+
+        self.data_type = "lightcurves"
+        self.training_config = config["training"]
+        self.architecture_config = config["unimodal"]["architecture"]
+        self.class_weights = class_weights
+
+        # Required classifier meta
+        self.num_classes = self.architecture_config["classifier"]["shape"]["num_classes"]
+
+        # Metrics and loss
+        self.loss_fn = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+        self.accuracy = torchmetrics.Accuracy(task="multiclass", num_classes=self.num_classes)
+        self.conf_matrix = MulticlassConfusionMatrix(num_classes=self.num_classes)
+
+        self.misclassified_tests = []
+        self.predicted = []
+        
+        # Override the architecture config with the phot classifier config
+        self.architecture_config['encoder']['new']['shape']['bottlenecklen'] = 1
+        self.architecture_config['encoder']['new']['shape']['bottleneckdim'] = 128
+        self.architecture_config['encoder']['new']['shape']['hidden_len'] = 32
+        self.architecture_config['encoder']['new']['shape']['encoder_layers'] = 4
+        self.architecture_config['encoder']['new']['shape']['encoder_heads'] = 8
+        self.architecture_config['encoder']['new']['shape']['model_dim'] = 128
+        self.architecture_config['encoder']['new']['shape']['ff_dim'] = 256
+        self.architecture_config['encoder']['new']['components']['concat'] = True
+        self.architecture_config['encoder']['new']['components']['selfattn'] = False
+        self.architecture_config['encoder']['new']['components']['fourier_embed'] = True
+        self.architecture_config['encoder']['new']['components']['sinpos_embed'] = False
+        self.architecture_config['classifier']['components']['classifier_dropout'] = 0.1
+        self.architecture_config['classifier']['components']['regularize'] = 0.0
+        self.architecture_config['classifier']['components']['out_middle'] = [64]
+
+        # Build underlying nn.Module model
+        shape = self.architecture_config["encoder"]["new"]["shape"]
+        comps = self.architecture_config["encoder"]["new"]["components"]
+        comps_classifier = self.architecture_config["classifier"]["components"]
+
+        self.model = PhotClassifier(
+            num_classes=self.num_classes,
+            num_bands=1,
+            bottleneck_length=shape["bottlenecklen"],
+            bottleneck_dim=shape["bottleneckdim"],
+            hidden_len=shape["hidden_len"],
+            model_dim=shape["model_dim"],
+            num_heads=shape["encoder_heads"],
+            ff_dim=shape["ff_dim"],
+            num_layers=shape["encoder_layers"],
+            dropout=comps_classifier["classifier_dropout"],
+            out_middle=comps_classifier["out_middle"],
+            selfattn=comps["selfattn"],
+            concat=comps["concat"],
+            fourier=comps["fourier_embed"],
+        )
+
+        print(f"Model {self.model_name()} has {sum(p.numel() for p in self.model.parameters())} total parameters")
+        print(f"Model {self.model_name()} has {sum(p.numel() for p in self.model.parameters() if p.requires_grad)} trainable parameters")
+
+    def model_name(self):
+        return "phot_classifier_unimodal_lightcurves"
+
+    def model_instance_str(self):
+        """
+        Returns
+        -------
+        str
+            A concise, human-readable identifier of the model instance for logging/output paths.
+        """
+        shape = self.architecture_config["encoder"]["new"]["shape"]
+        comps = self.architecture_config["encoder"]["new"]["components"]
+        s = "dim_"
+        s += f"{shape['bottlenecklen']}-"
+        s += f"{shape['bottleneckdim']}-"
+        s += f"{shape['encoder_heads']}-"
+        s += f"{shape['encoder_layers']}-"
+        s += f"{shape['model_dim']}_"
+
+        s += f"classifier_dropout{self.training_config.get('dropout', 0.1)}-"
+        s += f"num_classes{self.num_classes}_"
+
+        s += f"concat{comps['concat']}_"
+        if 'sinpos_embed' in comps:
+            s += f"sinpos{comps['sinpos_embed']}_"
+        s += f"fourier{comps['fourier_embed']}_"
+
+        s += f"lr{self.training_config['lr']}_"
+        s += f"weight_decay{self.training_config['weight_decay']}_"
+        s += f"date{datetime.now().strftime('%Y-%m-%d_%H-%M')}"
+        return s
+
+    def predict_step(self, batch):
+        """
+        Parameters
+        ----------
+        batch : dict
+            Batch with keys such as ``'flux'``, ``'time'``, ``'mask'`` (and optionally ``'band'``).
+
+        Returns
+        -------
+        torch.Tensor
+            Class probabilities or logits from the classifier.
+        """
+        x = batch
+        y_pred = self.forward(x)
+        for i in range(len(y_pred)):
+            self.predicted.append((x[i], y_pred[i]))
+        return y_pred

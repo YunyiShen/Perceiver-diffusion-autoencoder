@@ -28,7 +28,7 @@ from sklearn.model_selection import train_test_split
 from daep.utils.general_utils import detect_env, load_config, update_config
 from daep.utils.train_utils import LossLogger, AccuracyLogger
 from daep.datasets.dataloaders import create_dataloader
-from daep.Classifier import PhotClassifier
+from daep.LitWrapperAll import PhotClassifierUnimodal
 
 ENV = detect_env()
 DEFAULT_CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
@@ -45,7 +45,7 @@ def initialize_model(model_type, data_types, config):
         else:
             model = daepReconstructorMultimodal(config=config)
     elif model_type == 'photclassifier':
-        model = PhotClassifier(config=config)
+        model = PhotClassifierUnimodal(config=config)
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")
     
@@ -76,7 +76,7 @@ def train_worker(model, training_loader, validation_loader, config, output_dir, 
     checkpoint_callback = L.callbacks.ModelCheckpoint(monitor=eval_metric, save_top_k=4, mode='min', filename='{epoch:02d}-{val_loss:.2f}') # type: ignore
     accuracy_logger = AccuracyLogger()
     loss_logger = LossLogger()
-    if isinstance(model, daepClassifierUnimodal) or isinstance(model, daepClassifierMultimodal):
+    if isinstance(model, daepClassifierUnimodal) or isinstance(model, daepClassifierMultimodal) or isinstance(model, PhotClassifierUnimodal):
         callbacks = [checkpoint_callback, accuracy_logger]
     else:
         callbacks = [checkpoint_callback, loss_logger]
@@ -134,7 +134,7 @@ def train(config_path: str, model_type: str, **kwargs):
     print(f"Loading configuration from {config_path}")
     if model_type == 'reconstructor':
         default_config_path = DEFAULT_CONFIGS_DIR / "config_reconstruction_default.yaml"
-    elif model_type == 'classifier':
+    elif model_type == 'classifier' or model_type == 'photclassifier':
         default_config_path = DEFAULT_CONFIGS_DIR / "config_classifier_default.yaml"
     else:
         raise ValueError(f"Unsupported model_type: {model_type}")

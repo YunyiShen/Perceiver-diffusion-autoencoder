@@ -151,6 +151,9 @@ class AccuracyLogger(L.Callback):
         save_path = self.output_dir / "confusion_matrix.png"
         fig.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.close(fig)
+        
+        # Reset the confusion matrix for the next epoch
+        model.conf_matrix.reset()
 
 
 # def load_checkpoint(checkpoint_path: str, model: nn.Module, optimizer: Optional[torch.optim.Optimizer] = None, 

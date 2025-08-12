@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from daep.PhotometricLayers import photometricTransceiverEncoder2stages
+from daep.util_layers import MLP
 
 class LCC(nn.Module):
     """
@@ -108,3 +109,40 @@ class LCC(nn.Module):
         x = F.softmax(x, dim=-1)
 
         return x
+
+
+class PhotClassifier(nn.Module):
+    def __init__(self, num_classes, num_bands = 1, 
+                 bottleneck_length = 1,
+                 bottleneck_dim = 128,
+                 hidden_len = 32,
+                 model_dim = 128, 
+                 num_heads = 8, 
+                 ff_dim = 256,
+                 num_layers = 4,
+                 dropout = 0.1,
+                 out_middle = [64],
+                 selfattn = False, 
+                 concat = True,
+                 fourier = True):
+        super().__init__()
+        self.encoder = photometricTransceiverEncoder2stages(
+            num_bands, 
+                 bottleneck_length,
+                 bottleneck_dim,
+                 hidden_len ,
+                 model_dim, 
+                 num_heads, 
+                 ff_dim,
+                 num_layers,
+                 dropout,
+                 selfattn, 
+                 concat,
+                 fourier
+            
+        )
+        self.classifier = MLP(bottleneck_dim, num_classes, out_middle)
+
+    def forward(self, x):
+        z = self.encoder(x)[:, 0, :]          # (batch, emb_dim)
+        return self.classifier(z)     # (batch, num_classes)
