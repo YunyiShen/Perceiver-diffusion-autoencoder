@@ -9,7 +9,18 @@ import torch.distributions as dist
 import random
 import torch
 
-
+class modalitywrapper(nn.Module): 
+    '''
+    Handy function to use unimodal daep to train cross modality inference model, e.g., 
+    wrap a photometry encoder with this and a spectra decoder with this
+    '''
+    def __init__(self, net, modality):
+        super().__init__()
+        self.net = net
+        self.modality = modality
+    
+    def forward(self, x):
+        return self.net(x[self.modality])
 
 class unimodaldaep(nn.Module):
     def __init__(self, encoder, score, MMD = None, name = "flux",
@@ -203,3 +214,67 @@ class multimodaldaep(nn.Module):
             x_t[key][self.names[key]] = noise
             res[key] = self.sample(z, x_t[key], self.get_score(key), self.names[key], ddim, ddim_steps)
         return res
+    
+    
+
+
+#### cross modal inference #####
+
+class crossmodaldaep(nn.Module):
+    def __init__(self, encoder, score, 
+                 source_modality = "photometry",
+                 target_modality = "spectra",
+                 name = "flux",
+                 query_name = "wavelength",
+                beta_1 = 1e-4, beta_T = 0.02, 
+                T = 1000
+                ):
+        super().__init__()
+        self.encoder = encoder
+        self.score_model = score
+        self.diffusion_time_embd = SinusoidalMLPPositionalEmbedding(score.model_dim)
+        self.diffusion_trainer = GaussianDiffusionTrainer(beta_1, beta_T, T)
+        self.diffusion_sampler = GaussianDiffusionSampler(beta_1, beta_T, T)
+        self.source_modility = source_modality
+        self.target_modality = target_modality
+        self.latent_len = encoder.bottleneck_length
+        self.latent_dim = encoder.bottleneck_dim
+        self.name = name
+        self.query_name = query_name
+    
+    def encode(self, x):
+        return self.encoder(x)
+    
+    def score(self, xt, t, cond = None):
+        if cond is not None:
+            aux = self.diffusion_time_embd(t)
+        else:
+            cond = self.diffusion_time_embd(t)
+            aux = None
+        return self.score_model(xt, cond, aux) # score model take xt, cond and aux, cond is always assume to be not None
+    
+    def forward(self, x):
+        z = self.encode(x[self.source_modility])
+        score_matching_loss = self.diffusion_trainer(self.score, x[self.target_modality], 
+                                                     z, self.name).mean()
+
+        return score_matching_loss
+    
+    def sample(self, z, x_T, ddim = True, ddim_steps = 200):
+        self.eval()
+        with torch.no_grad():
+            if ddim:
+                return self.diffusion_sampler.ddim_sample(self.score, x_T, z, self.name, steps=ddim_steps)
+            return self.diffusion_sampler(self.score, x_T, z, self.name)
+    
+
+    def inference(self, x_0, ddim = True, ddim_steps = 200):
+        name = self.query_name
+        z = self.encode(x_0[self.source_modility])
+        noise = torch.randn_like(x_0[self.target_modality][name]).to(x_0[name].device)
+        x_t = x_0
+        x_t[self.target_modality][self.name] = noise
+        return self.sample(z, x_t[self.target_modality], ddim, ddim_steps)
+
+
+
