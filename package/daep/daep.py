@@ -114,7 +114,8 @@ def modality_drop(keys, p_drop=0.2, drop_all=False):
 
 class multimodaldaep(nn.Module):
     def __init__(self, tokenizers, encoder, scores, measurement_names, modality_weights = None,
-                 modality_dropping_during_training = lambda x: x,
+                 modality_dropping_during_training = None,
+                 persample_dropping_p = 0.,
                  beta_1 = 1e-4, beta_T = 0.02, 
                  T = 1000):
         '''
@@ -122,7 +123,7 @@ class multimodaldaep(nn.Module):
             tokenizers: {modality: tokenizer} that should share the same out put dimension (can be different seqlen)
             encoder: a sngle perceiver encoder
             scores: {modality: score}
-            modality_dropping_during_training: a callable making a copy of the data that conditioning will only be based on them
+            modality_dropping_during_training: a callable making a copy of the data that conditioning will only be based on them, if it is None roll back to per sample modality dropping by random masking in encoder
         '''
         super().__init__()
         assert set(tokenizers.keys()) == set(scores.keys()) and set(tokenizers.keys()) == set(measurement_names.keys()), "modality keys have to match"
@@ -149,6 +150,70 @@ class multimodaldaep(nn.Module):
         if modality_weights is None:
             modality_weights = {key: 1.0 for key in self.modalities}
         self.modality_weights = modality_weights
+        self.persample_dropping_p = persample_dropping_p
+    
+    def make_modality_mask(self, tokens, p):
+        """
+        Args:
+            tokens: list of [B, L_m, D] tensors, one per modality
+            p: float or list/tuple/tensor of length num_modalities
+               Drop probability for each modality.
+        Returns:
+            masked_tokens: list of masked modality tensors
+            attn_mask: [B, 1, 1, total_seq_len] boolean mask (True=keep, False=mask)
+        """
+        device = tokens[0].device
+        B = tokens[0].size(0)
+        num_modalities = len(tokens)
+
+        
+        # Step 1: initial random drop decisions
+        drop_trials = torch.rand(B, num_modalities, device=device) < p  # [B, M]
+
+        # Step 2: ensure at least one modality remains
+        all_dropped = drop_trials.all(dim=1)  # [B] True if all modalities dropped
+        if all_dropped.any():
+            # Randomly choose one modality to keep for these rows
+            random_keep = torch.randint(
+                low=0, high=num_modalities, size=(all_dropped.sum(),), device=device
+            )
+            for row_idx, keep_m in zip(all_dropped.nonzero(as_tuple=True)[0], random_keep):
+                drop_trials[row_idx, keep_m] = False
+
+        # Step 3: build keep masks per modality
+        keep_masks = []
+        for m, t in enumerate(tokens):
+            keep_mask = ~drop_trials[:, m].unsqueeze(1)  # [B, 1]
+            keep_mask = keep_mask.expand(-1, t.size(1))   # [B, L_m]
+            keep_masks.append(keep_mask)
+
+        # Step 5: concat keep masks → attention mask
+        concat_keep_mask = torch.cat(keep_masks, dim=1)  # [B, total_seq_len]
+        masked_tokens = [
+            t.masked_fill(~km.unsqueeze(-1), 0.0)
+            for t, km in zip(tokens, keep_masks)
+        ]
+
+        return masked_tokens, ~concat_keep_mask
+    
+    def get_modality_p(self, keys):
+        """
+        Args:
+            keys: list of modality names (str), same order as tokens
+            self.persample_dropping_p: float/int OR dict mapping modality key -> drop probability
+        Returns:
+            torch.tensor of shape [num_modalities] with probabilities
+        """
+        if isinstance(self.persample_dropping_p, (float, int)):
+            # Scalar case → same for all
+            p_list = [float(self.persample_dropping_p)] * len(keys)
+        elif isinstance(self.persample_dropping_p, dict):
+            # Dict case → fill missing with 0.0
+            p_list = [float(self.persample_dropping_p.get(k, 0.0)) for k in keys]
+        else:
+            raise TypeError("self.persample_dropping_p must be float, int, or dict")
+
+        return torch.tensor(p_list, dtype=torch.float32)
     
     def encode(self, x, keys = None):
         '''
@@ -160,8 +225,17 @@ class multimodaldaep(nn.Module):
         tokens = [self.tokenizers[key](x[key]) + self.modalityEmbedding[key] for key in keys]
         
         
+        if self.modality_dropping_during_training is None and self.training:
+            #breakpoint()
+            p = self.get_modality_p(keys).to(tokens[0].device)
+            tokens, modality_mask = self.make_modality_mask(tokens, p)
+        else:
+            modality_mask = None
         
-        return self.encoder(torch.concat(tokens, axis = 1))
+        
+        
+        
+        return self.encoder(torch.concat(tokens, axis = 1), mask = modality_mask)
     
     
     def get_score(self, key):
@@ -176,7 +250,10 @@ class multimodaldaep(nn.Module):
     
     
     def forward(self, x):
-        z = self.encode(x, keys = self.modality_dropping_during_training(x.keys())) # modality dropping
+        if self.modality_dropping_during_training is not None:
+            z = self.encode(x, keys = self.modality_dropping_during_training(x.keys())) # modality dropping
+        else:
+            z = self.encode(x)
         #breakpoint()
         score_matching_loss = torch.cat([self.modality_weights[key] * \
                                             self.diffusion_trainer(
