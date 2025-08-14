@@ -25,6 +25,7 @@ training:
 unimodal:
   architecture:
     classifier:
+      simple: false
       shape:
         num_classes: 8
       components:

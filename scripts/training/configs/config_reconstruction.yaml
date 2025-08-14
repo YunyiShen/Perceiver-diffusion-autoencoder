@@ -23,12 +23,12 @@ training:
 unimodal:
   architecture:
     shape:
-      bottlenecklen: 1
-      bottleneckdim: 128
+      bottlenecklen: 16
+      bottleneckdim: 16
       model_dim: 128
       encoder_layers: null
       decoder_layers: null
-      encoder_heads: 8
+      encoder_heads: 16
       decoder_heads: null
     components:
       concat: null

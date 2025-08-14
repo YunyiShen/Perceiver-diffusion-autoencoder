@@ -10,11 +10,11 @@ model_type: null
 test_name: tessv1      # Name of test, to organize models and results
 data_types: [lightcurves]    # Types of datasets (i.e. spectra, lightcurves)
 data_names: [tessv1]   # Names of datasets, corresponding to data_types
-train_from_checkpoint: false
-checkpoint_path: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tessv1/daep_classifier_unimodal_lightcurves/dim_16-16-4-4-256_classifier_dropout0.1-num_classes8_concatTrue_sinposTrue_fourierFalse_use_uncertaintyFalse_regularize0.0_lr0.00025_weight_decay1e-5_date2025-08-11_15-28/checkpoints/epoch=40-val_loss=1.97.ckpt
+train_from_checkpoint: true
+checkpoint_path: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tessv1/daep_classifier_unimodal_lightcurves/pretrained_unfrozen_dim_16-16-4-16-128_classifier_dropout0.1-num_classes8_concatTrue_sinposFalse_fourierTrue_use_uncertaintyFalse_regularize0.0_lr1e-4_weight_decay1e-5_date2025-08-13_18-44/checkpoints/epoch=86-val_loss=1.96.ckpt
 
 training:
-  epochs: 500
+  epochs: 350
   lr: 1e-4
   weight_decay: 1e-5
   batch: 16
@@ -24,17 +24,18 @@ training:
 unimodal:
   architecture:
     classifier:
+      simple: false
       shape:
         num_classes: null
       components:
         classifier_dropout: null
         regularize: null
     encoder:
-      use_pretrained_encoder: false
+      use_pretrained_encoder: true
       pretrained:
-        pretrained_encoder_path: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tess_20k/daep_reconstructor_unimodal_lightcurves/dim_16-16-4-4-4-4-256_uncertFalse_concatTrue_sinposTrue_fourierFalse_lr0.00025_weight_decay1e-5_date2025-08-11_12-22/
+        pretrained_encoder_path: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tess_20k/daep_reconstructor_unimodal_lightcurves/dim_16-16-16-4-4-4-128_uncertFalse_concatTrue_sinposFalse_fourierTrue_lr0.00025_weight_decay1e-5_date2025-08-13_16-51
         pretrained_epoch: -1
-        freeze_pretrained_encoder: true
+        freeze_pretrained_encoder: false
       new:
         shape:
           bottlenecklen: null

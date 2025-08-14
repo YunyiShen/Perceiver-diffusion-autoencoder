@@ -11,7 +11,7 @@ from pathlib import Path
 from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScore2stages
 from daep.PhotometricLayers import photometricTransceiverEncoder, photometricTransceiverScore2stages
 from daep.Perceiver import PerceiverEncoder
-from daep.Classifier import LCC, PhotClassifier
+from daep.Classifier import LCC, PhotClassifier, MLP
 from daep.daep import unimodaldaep, multimodaldaep, modality_drop, unimodaldaepclassifier, multimodaldaepclassifier
 from functools import partial
 
@@ -526,12 +526,17 @@ class daepClassifierUnimodal(daepClassifier):
             architecture_config['classifier']['shape']['bottlenecklen'] = architecture_config["encoder"]["new"]["shape"]["bottlenecklen"]
             
         # Initialize a new classifier
-        classifier = LCC(
-            bottleneck_dim=architecture_config['classifier']['shape']['bottleneckdim'],
-            bottleneck_len=architecture_config['classifier']['shape']['bottlenecklen'],
-            dropout_p=architecture_config['classifier']['components']['classifier_dropout'],
-            num_classes=architecture_config['classifier']['shape']['num_classes']
-        )
+        if getattr(config['unimodal']['architecture']['classifier'], 'simple', False):
+            self.classifier = MLP(architecture_config['classifier']['shape']['bottleneckdim'],
+                                  architecture_config['classifier']['shape']['num_classes'],
+                                  [64])
+        else:
+            classifier = LCC(
+                bottleneck_dim=architecture_config['classifier']['shape']['bottleneckdim'],
+                bottleneck_len=architecture_config['classifier']['shape']['bottlenecklen'],
+                dropout_p=architecture_config['classifier']['components']['classifier_dropout'],
+                num_classes=architecture_config['classifier']['shape']['num_classes']
+            )
         
         # Initialize the full model
         model = unimodaldaepclassifier(
@@ -561,6 +566,10 @@ class daepClassifierUnimodal(daepClassifier):
                 model_str += "unfrozen_"
         else:
             model_str = "fromscratch_"
+        
+        if self.architecture_config['classifier']['simple']:
+            model_str += "simple_"
+        
         model_str += f"dim_"
                 
         # Classifier and encoder shape parameters
@@ -750,6 +759,10 @@ class daepClassifierMultimodal(daepClassifier):
                 model_str += "unfrozen_"
         else:
             model_str = "fromscratch_"
+        
+        if self.architecture_config['classifier']['simple']:
+            model_str += "simple_"
+        
         model_str += f"dim_"
         
         # Classifier and encoder shape parameters
