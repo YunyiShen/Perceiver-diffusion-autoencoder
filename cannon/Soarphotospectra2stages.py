@@ -36,6 +36,7 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
           photometry_tokens = 64,
           model_dim = 128, encoder_layers = 4, 
           decoder_layers = 4,regularize = 0.000, 
+          persample_dropping = False,
           dropping_prob = 0.2,
           batch = 64, aug = 1, save_every = 20, 
           tokenizer_head = 4,
@@ -151,10 +152,19 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
 
     
 
-    mydaep = multimodaldaep(tokenizers, encoder, scores, 
+    if persample_dropping:
+        mydaep = multimodaldaep(tokenizers, encoder, scores, 
+                            measurement_names = {"spectra":"flux", "photometry": "flux"}, 
+                            modality_dropping_during_training = None,
+                            persample_dropping_p = dropping_prob,
+                            ).to(device)
+    
+    else:
+
+        mydaep = multimodaldaep(tokenizers, encoder, scores, 
                             measurement_names = {"spectra":"flux", "photometry": "flux"}, 
                             modality_dropping_during_training = partial(modality_drop, p_drop=dropping_prob)).to(device)
-    
+     
     mydaep.train()
     optimizer = AdamW(mydaep.parameters(), lr=lr)
     epoch_loss = []
@@ -178,11 +188,11 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
         if (ep+1) % save_every == 0:
             if target_save is not None:
                 os.remove(target_save)
-            target_save = f"../ckpt/{which_data.upper()}photospectra_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_heads{tokenizer_head}-{encoder_head}-{score_head}_concat{concat}_mixerselfattn{mixer_selfattn}_lr{lr}_modaldropP{dropping_prob}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
+            target_save = f"../ckpt/{which_data.upper()}photospectra_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_heads{tokenizer_head}-{encoder_head}-{score_head}_concat{concat}_mixerselfattn{mixer_selfattn}_lr{lr}_persampledrop{persample_dropping}_modaldropP{dropping_prob}_epoch{ep+1}_batch{batch}_reg{regularize}_aug{aug}.pth"
             torch.save(mydaep, target_save)
             plt.plot(epoches, epoch_loss)
             plt.show()
-            plt.savefig(f"./logs/{which_data.upper()}photospectra_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_heads{tokenizer_head}-{encoder_head}-{score_head}_concat{concat}_mixerselfattn{mixer_selfattn}_lr{lr}_modaldropP{dropping_prob}_batch{batch}_reg{regularize}_aug{aug}.png")
+            plt.savefig(f"./logs/{which_data.upper()}photospectra_daep2stages_{bottlenecklen}-{bottleneckdim}-{spectra_tokens}-{photometry_tokens}-{encoder_layers}-{decoder_layers}-{model_dim}_heads{tokenizer_head}-{encoder_head}-{score_head}_concat{concat}_mixerselfattn{mixer_selfattn}_lr{lr}_persampledrop{persample_dropping}_modaldropP{dropping_prob}_batch{batch}_reg{regularize}_aug{aug}.png")
             plt.close()
         progress_bar.set_postfix(loss=f"epochs:{ep}, {math.log(this_epoch):.4f}") 
     
