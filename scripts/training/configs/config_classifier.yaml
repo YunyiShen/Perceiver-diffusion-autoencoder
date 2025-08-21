@@ -1,4 +1,4 @@
-env: local
+env: remote
 
 data:
   data_path_local: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/data/
@@ -7,15 +7,14 @@ data:
   models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
 
 model_type: null
-test_name: tessv1      # Name of test, to organize models and results
+test_name: tessv3      # Name of test, to organize models and results
 data_types: [lightcurves]    # Types of datasets (i.e. spectra, lightcurves)
-data_names: [tessv1]   # Names of datasets, corresponding to data_types
-process_lightcurves: true
+data_names: [tessv3]   # Names of datasets, corresponding to data_types
 train_from_checkpoint: false
 checkpoint_path: null
 
 training:
-  epochs: 350
+  epochs: 500
   lr: 1e-4
   weight_decay: 1e-5
   batch: 16
@@ -28,16 +27,16 @@ unimodal:
       classifier_type: cnn
       shape:
         num_classes: 8
-        weight_by_class: false
+        weight_by_class: true
       components:
         classifier_dropout: null
         regularize: null
     encoder:
       use_pretrained_encoder: true
       pretrained:
-        pretrained_encoder_path: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tess_20k/daep_reconstructor_unimodal_lightcurves/dim_16-16-16-4-4-4-128_uncertFalse_concatTrue_sinposFalse_fourierTrue_lr0.00025_weight_decay1e-5_date2025-08-13_16-51
+        pretrained_encoder_path: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/tess_20k/daep_reconstructor_unimodal_lightcurves/dim_16-16-16-4-4-4-128_uncertFalse_concatTrue_sinposFalse_fourierTrue_lr0.00025_weight_decay1e-5_date2025-08-13_16-51
         pretrained_epoch: -1
-        freeze_pretrained_encoder: false
+        freeze_pretrained_encoder: true
       new:
         shape:
           bottlenecklen: null

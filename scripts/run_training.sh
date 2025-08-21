@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH -J train_tess_20k_photclassifier
-#SBATCH -o train_tess_20k_photclassifier_%j.out
-#SBATCH -e train_tess_20k_photclassifier_%j.err
+#SBATCH -J train_tessv3_classifier
+#SBATCH -o train_tessv3_classifier_%j.out
+#SBATCH -e train_tessv3_classifier_%j.err
 #SBATCH --gres=gpu:4
 #SBATCH --gpus-per-node=4
 #SBATCH --nodes=1
@@ -57,4 +57,4 @@ echo "CPUINFO_ARCH_NAME: $CPUINFO_ARCH_NAME"
 
 # Run the dataset creation script
 cd training
-srun python training_script.py --config_path configs/config_reconstruction.yaml     
+srun python training_script.py

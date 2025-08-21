@@ -27,18 +27,18 @@ from sklearn.model_selection import train_test_split
 
 from daep.utils.general_utils import detect_env, load_config, update_config
 from daep.utils.train_utils import LossLogger, AccuracyLogger
-from daep.datasets.dataloaders import create_dataloader
+from daep.datasets.dataloaders import create_dataloader, get_weights_and_num_classes, update_config_with_num_classes
 from daep.LitWrapperAll import PhotClassifierUnimodal
 
 ENV = detect_env()
 DEFAULT_CONFIGS_DIR = Path(__file__).resolve().parent / "configs"
 
-def initialize_model(model_type, data_types, config):
+def initialize_model(model_type, data_types, config, weights=None):
     if model_type == 'classifier':
         if len(data_types) == 1:
-            model = daepClassifierUnimodal(config=config)
+            model = daepClassifierUnimodal(config=config, class_weights=weights)
         else:
-            model = daepClassifierMultimodal(config=config)
+            model = daepClassifierMultimodal(config=config, class_weights=weights)
     elif model_type == 'reconstructor':
         if len(data_types) == 1:
             model = daepReconstructorUnimodal(config=config)
@@ -77,7 +77,7 @@ def train_worker(model, training_loader, validation_loader, config, output_dir, 
     accuracy_logger = AccuracyLogger()
     loss_logger = LossLogger()
     if isinstance(model, daepClassifierUnimodal) or isinstance(model, daepClassifierMultimodal) or isinstance(model, PhotClassifierUnimodal):
-        callbacks = [checkpoint_callback, accuracy_logger]
+        callbacks = [checkpoint_callback, loss_logger, accuracy_logger]
     else:
         callbacks = [checkpoint_callback, loss_logger]
     
@@ -157,11 +157,13 @@ def train(config_path: str, model_type: str, **kwargs):
     print(f"Training with {world_size} GPUs")
     print(f"Configuration loaded from: {config_path}")
     
-    # Initialize model
-    model = initialize_model(model_type, data_types, config)
-    
     # Create dataloader using the shared function
     training_loader, validation_loader = create_dataloader(config, data_types, data_names)
+    weights, num_classes = get_weights_and_num_classes(training_loader, weight=config['unimodal']['architecture']['classifier']['shape']['weight_by_class'])
+    config = update_config_with_num_classes(config, num_classes)
+    
+    # Initialize model
+    model = initialize_model(model_type, data_types, config, weights)
     
     # Create output directory
     output_dir = Path(config["data"]["models_path"]) / test_name

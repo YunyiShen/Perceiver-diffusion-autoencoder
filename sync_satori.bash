@@ -6,7 +6,7 @@ rsync -r -av --progress cannon allisone@satori-login-001.mit.edu:/home/allisone/
 rsync -r -av --progress package allisone@satori-login-001.mit.edu:/home/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder
 rsync -r -av --progress scripts allisone@satori-login-001.mit.edu:/home/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder
 rsync -r -av --progress models allisone@satori-login-002.mit.edu:/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder
-rsync -r -av --progress data allisone@satori-login-002.mit.edu:/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder
+rsync -r -av --progress data/lightcurves_raw/tessv1 allisone@satori-login-002.mit.edu:/nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/lightcurves_raw
 
 
 rsync -r -av --progress allisone@satori-login-001.mit.edu:/home/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/cannon .

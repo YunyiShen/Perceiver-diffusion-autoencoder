@@ -11,7 +11,7 @@ from pathlib import Path
 from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScore2stages
 from daep.PhotometricLayers import photometricTransceiverEncoder, photometricTransceiverScore2stages
 from daep.Perceiver import PerceiverEncoder
-from daep.Classifier import LCC, PhotClassifier, MLP
+from daep.Classifier import LCC, PhotClassifier, MLP, TransformerClassifier
 from daep.daep import unimodaldaep, multimodaldaep, modality_drop, unimodaldaepclassifier, multimodaldaepclassifier
 from functools import partial
 
@@ -62,7 +62,7 @@ class daepReconstructorUnimodal(daepReconstructor):
         
         architecture_config = self.architecture_config
         if self.data_type == "spectra":
-            encoder = spectraTransceiverEncoder(
+            self.encoder = spectraTransceiverEncoder(
                 bottleneck_length=architecture_config['shape']['bottlenecklen'],
                 bottleneck_dim=architecture_config['shape']['bottleneckdim'],
                 model_dim=architecture_config['shape']['model_dim'],
@@ -71,7 +71,7 @@ class daepReconstructorUnimodal(daepReconstructor):
                 ff_dim=architecture_config['shape']['model_dim'],
                 concat=architecture_config['components']['concat'],
             )
-            score = spectraTransceiverScore2stages(
+            self.score = spectraTransceiverScore2stages(
                 bottleneck_dim=architecture_config['shape']['bottleneckdim'],
                 model_dim=architecture_config['shape']['model_dim'],
                 num_heads=architecture_config['shape']['decoder_heads'],
@@ -81,9 +81,9 @@ class daepReconstructorUnimodal(daepReconstructor):
                 cross_attn_only=architecture_config['components']['cross_attn_only'],
                 output_uncertainty=architecture_config['components']['use_uncertainty']
             )
-            model = unimodaldaep(encoder, score, regularize=architecture_config['components']['regularize'])
+            self.model = unimodaldaep(self.encoder, self.score, regularize=architecture_config['components']['regularize'])
         elif self.data_type == "lightcurves":
-            encoder = photometricTransceiverEncoder(
+            self.encoder = photometricTransceiverEncoder(
                 num_bands=1,
                 bottleneck_length=architecture_config['shape']['bottlenecklen'],
                 bottleneck_dim=architecture_config['shape']['bottleneckdim'],
@@ -95,7 +95,7 @@ class daepReconstructorUnimodal(daepReconstructor):
                 sinpos=architecture_config['components']['sinpos_embed'],
                 fourier=architecture_config['components']['fourier_embed'],
             )
-            score = photometricTransceiverScore2stages(
+            self.score = photometricTransceiverScore2stages(
                 num_bands=1,
                 bottleneck_dim=architecture_config['shape']['bottleneckdim'],
                 model_dim=architecture_config['shape']['model_dim'],
@@ -108,13 +108,12 @@ class daepReconstructorUnimodal(daepReconstructor):
                 fourier=architecture_config['components']['fourier_embed'],
                 output_uncertainty=architecture_config['components']['use_uncertainty'],
             )
-            model = unimodaldaep(encoder, score, regularize=architecture_config['components']['regularize'],
+            self.model = unimodaldaep(self.encoder, self.score, regularize=architecture_config['components']['regularize'],
                                  output_uncertainty=architecture_config['components']['use_uncertainty'],
                                  sinpos=architecture_config['components']['sinpos_embed'],
                                  fourier=architecture_config['components']['fourier_embed'])
         else:
             raise ValueError(f"Invalid data type: {self.data_type}, must be 'spectra' or 'lightcurves'")
-        self.model = model
 
     def reconstruct(self, x):
         reconstructed = self.model.reconstruct(x)
@@ -206,16 +205,15 @@ class daepReconstructorMultimodal(daepReconstructor):
         self.training_config = config['training']
         
         architecture_config = self.architecture_config
-        tokenizers = {
-            "spectra": spectraTransceiverEncoder(
+        self.spectra_tokenizer = spectraTransceiverEncoder(
                 bottleneck_length = architecture_config["shape"]["bottlenecklen"],
                 bottleneck_dim = architecture_config["shape"]["spectra_tokens"],
                 model_dim = architecture_config["shape"]["model_dim"],
                 ff_dim = architecture_config["shape"]["model_dim"],
                 num_layers = architecture_config["shape"]["encoder_layers"],
                 num_heads = architecture_config["shape"]["encoder_heads"],
-            ), 
-            "photometry": photometricTransceiverEncoder(
+            ) 
+        self.photometry_tokenizer = photometricTransceiverEncoder(
                 num_bands = 1, 
                 bottleneck_length = architecture_config["shape"]["bottlenecklen"],
                 bottleneck_dim = architecture_config["shape"]["photometry_tokens"],
@@ -226,8 +224,7 @@ class daepReconstructorMultimodal(daepReconstructor):
                 sinpos = architecture_config["components"]["sinpos_embed"],
                 fourier=architecture_config["components"]["fourier_embed"],
             )
-        }
-        encoder = PerceiverEncoder(
+        self.encoder = PerceiverEncoder(
                         bottleneck_length = architecture_config["shape"]["bottlenecklen"],
                         bottleneck_dim = architecture_config["shape"]["bottleneckdim"],
                         model_dim = architecture_config["shape"]["model_dim"],
@@ -236,8 +233,7 @@ class daepReconstructorMultimodal(daepReconstructor):
                         num_heads = architecture_config["shape"]["encoder_heads"],
                         selfattn = architecture_config["components"]["mixer_selfattn"]
         )
-        scores = {
-            "spectra":spectraTransceiverScore2stages(
+        self.spectra_score = spectraTransceiverScore2stages(
                         bottleneck_dim = architecture_config["shape"]["bottleneckdim"],
                         model_dim = architecture_config["shape"]["model_dim"],
                         ff_dim = architecture_config["shape"]["model_dim"],
@@ -245,8 +241,8 @@ class daepReconstructorMultimodal(daepReconstructor):
                         num_layers = architecture_config["shape"]["decoder_layers"],
                         concat = architecture_config["components"]["concat"],
                         output_uncertainty=architecture_config["components"]["use_uncertainty"]
-                        ), 
-            "photometry": photometricTransceiverScore2stages(
+                        )
+        self.photometry_score = photometricTransceiverScore2stages(
                 bottleneck_dim = architecture_config["shape"]["bottleneckdim"],
                     num_bands = 1,
                     model_dim = architecture_config["shape"]["model_dim"],
@@ -258,16 +254,21 @@ class daepReconstructorMultimodal(daepReconstructor):
                     fourier=architecture_config["components"]["fourier_embed"],
                     output_uncertainty=architecture_config["components"]["use_uncertainty"]
             )
+        tokenizers = {
+            "spectra": self.spectra_tokenizer,
+            "photometry": self.photometry_tokenizer
         }
-        model = multimodaldaep(
-            tokenizers, encoder, scores,
+        scores = {
+            "spectra": self.spectra_score,
+            "photometry": self.photometry_score
+        }
+        self.model = multimodaldaep(tokenizers, self.encoder, scores,
             measurement_names={"spectra": "flux", "photometry": "flux"},
             modality_dropping_during_training=partial(modality_drop, p_drop=architecture_config["components"]["dropping_prob"]),
             output_uncertainty=architecture_config["components"]["use_uncertainty"],
             sinpos = architecture_config["components"]["sinpos_embed"],
             fourier = architecture_config["components"]["fourier_embed"]
         )
-        self.model = model
         
         if 'use_uncertainty' in self.architecture_config['components'] and self.architecture_config['components']['use_uncertainty']:
             raise ValueError("Use uncertainty is not supported for multimodal models")
@@ -496,7 +497,7 @@ class daepClassifierUnimodal(daepClassifier):
         else:
             # Initialize a new encoder
             if self.data_type == "spectra":
-                encoder = spectraTransceiverEncoder(
+                self.encoder = spectraTransceiverEncoder(
                     bottleneck_length=architecture_config["encoder"]["new"]["shape"]["bottlenecklen"],
                     bottleneck_dim=architecture_config["encoder"]["new"]["shape"]["bottleneckdim"],
                     model_dim=architecture_config["encoder"]["new"]["shape"]["model_dim"],
@@ -506,7 +507,7 @@ class daepClassifierUnimodal(daepClassifier):
                     concat=architecture_config["encoder"]["new"]["components"]["concat"],
                 )
             elif self.data_type == "lightcurves":
-                encoder = photometricTransceiverEncoder(
+                self.encoder = photometricTransceiverEncoder(
                     num_bands=1,
                     bottleneck_length=architecture_config["encoder"]["new"]["shape"]["bottlenecklen"],
                     bottleneck_dim=architecture_config["encoder"]["new"]["shape"]["bottleneckdim"],
@@ -526,22 +527,31 @@ class daepClassifierUnimodal(daepClassifier):
             architecture_config['classifier']['shape']['bottlenecklen'] = architecture_config["encoder"]["new"]["shape"]["bottlenecklen"]
             
         # Initialize a new classifier
-        if getattr(config['unimodal']['architecture']['classifier'], 'simple', False):
+        if config['unimodal']['architecture']['classifier']['classifier_type'] == 'simple':
             self.classifier = MLP(architecture_config['classifier']['shape']['bottleneckdim'],
                                   architecture_config['classifier']['shape']['num_classes'],
                                   [64])
-        else:
-            classifier = LCC(
+        elif config['unimodal']['architecture']['classifier']['classifier_type'] == 'transformer':
+            self.classifier = TransformerClassifier(
                 bottleneck_dim=architecture_config['classifier']['shape']['bottleneckdim'],
                 bottleneck_len=architecture_config['classifier']['shape']['bottlenecklen'],
                 dropout_p=architecture_config['classifier']['components']['classifier_dropout'],
                 num_classes=architecture_config['classifier']['shape']['num_classes']
             )
+        elif config['unimodal']['architecture']['classifier']['classifier_type'] == 'cnn':
+            self.classifier = LCC(
+                bottleneck_dim=architecture_config['classifier']['shape']['bottleneckdim'],
+                bottleneck_len=architecture_config['classifier']['shape']['bottlenecklen'],
+                dropout_p=architecture_config['classifier']['components']['classifier_dropout'],
+                num_classes=architecture_config['classifier']['shape']['num_classes']
+            )
+        else:
+            raise ValueError(f"Invalid classifier type: {getattr(config['unimodal']['architecture']['classifier'], 'classifier_type')} must be either 'simple' or 'transformer' or 'cnn'")
         
         # Initialize the full model
         model = unimodaldaepclassifier(
-                encoder=encoder,
-                classifier=classifier,
+                encoder=self.encoder,
+                classifier=self.classifier,
                 MMD=None,
                 regularize=architecture_config["classifier"]["components"]["regularize"])
         self.model = model
@@ -567,8 +577,15 @@ class daepClassifierUnimodal(daepClassifier):
         else:
             model_str = "fromscratch_"
         
-        if self.architecture_config['classifier']['simple']:
+        if self.architecture_config['classifier']['classifier_type'] == 'simple':
             model_str += "simple_"
+        elif self.architecture_config['classifier']['classifier_type'] == 'transformer':
+            model_str += "transformer_"
+        elif self.architecture_config['classifier']['classifier_type'] == 'cnn':
+            model_str += "cnn_"
+        
+        if self.class_weights is not None:
+            model_str += "weighted_"
         
         model_str += f"dim_"
                 
@@ -644,9 +661,9 @@ class daepClassifierMultimodal(daepClassifier):
                 print(f"Pretrained encoder must be part of a daepReconstructorMultimodal model")
                 raise ValueError(f"Failed to load pretrained encoder from {pretrained_encoder_ckpt_path}: {e}")
             
-            spectra_tokenizer = pretrained_model.tokenizers["spectra"]
-            photometry_tokenizer = pretrained_model.tokenizers["photometry"]
-            encoder = pretrained_model.encoder
+            self.spectra_tokenizer = pretrained_model.tokenizers["spectra"]
+            self.photometry_tokenizer = pretrained_model.tokenizers["photometry"]
+            self.encoder = pretrained_model.encoder
             print(f"Loaded pretrained encoder from {pretrained_encoder_ckpt_path}")
             
             # Freeze the pretrained encoder parameters if specified
@@ -681,7 +698,7 @@ class daepClassifierMultimodal(daepClassifier):
             
         else:
             # Initialize a new encoder
-            spectra_tokenizer = spectraTransceiverEncoder(
+            self.spectra_tokenizer = spectraTransceiverEncoder(
                     bottleneck_length=architecture_config["encoder"]["new"]["shape"]["bottlenecklen"],
                     bottleneck_dim=architecture_config["encoder"]["new"]["shape"]["spectra_tokens"],
                     model_dim=architecture_config["encoder"]["new"]["shape"]["model_dim"],
@@ -691,7 +708,7 @@ class daepClassifierMultimodal(daepClassifier):
                     concat=architecture_config["encoder"]["new"]["components"]["concat"],
                     use_uncertainty=architecture_config["encoder"]["new"]["components"]["use_uncertainty"]
                 )
-            photometry_tokenizer = photometricTransceiverEncoder(
+            self.photometry_tokenizer = photometricTransceiverEncoder(
                 num_bands=1,
                 bottleneck_length=architecture_config["encoder"]["new"]["shape"]["bottlenecklen"],
                 bottleneck_dim=architecture_config["encoder"]["new"]["shape"]["photometry_tokens"],
@@ -704,7 +721,7 @@ class daepClassifierMultimodal(daepClassifier):
                 fourier=architecture_config["encoder"]["new"]["components"]["fourier_embed"],
                 use_uncertainty=architecture_config["encoder"]["new"]["components"]["use_uncertainty"]
             )
-            encoder = PerceiverEncoder(
+            self.encoder = PerceiverEncoder(
                 bottleneck_length = architecture_config["encoder"]["new"]["shape"]["bottlenecklen"],
                 bottleneck_dim = architecture_config["encoder"]["new"]["shape"]["bottleneckdim"],
                 model_dim = architecture_config["encoder"]["new"]["shape"]["model_dim"],
@@ -728,8 +745,8 @@ class daepClassifierMultimodal(daepClassifier):
         
         # Initialize the full model
         model = multimodaldaepclassifier(
-                tokenizers={"spectra": spectra_tokenizer, "photometry": photometry_tokenizer},
-                encoder=encoder,
+                tokenizers={"spectra": self.spectra_tokenizer, "photometry": self.photometry_tokenizer},
+                encoder=self.encoder,
                 classifier=classifier,
                 measurement_names={"spectra": "flux", "photometry": "flux"},
                 modality_dropping_during_training=partial(modality_drop, p_drop=architecture_config["encoder"]["new"]["components"]["dropping_prob"])
@@ -762,6 +779,9 @@ class daepClassifierMultimodal(daepClassifier):
         
         if self.architecture_config['classifier']['simple']:
             model_str += "simple_"
+        
+        if self.class_weights is not None:
+            model_str += "weighted_"
         
         model_str += f"dim_"
         

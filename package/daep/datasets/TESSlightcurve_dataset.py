@@ -85,10 +85,19 @@ class TESSDataset(Dataset):
         # self.starclass_name_to_int = {'INSTRUMENT': 0, 'APERIODIC': 1, 'CONSTANT': 2, 'CONTACT_ROT': 3,
         #                              'DSCT_BCEP': 4, 'ECLIPSE': 5, 'GDOR_SPB': 6, 'RRLYR_CEPHEID': 7,
         #                              'SOLARLIKE': 8}
-        self.starclass_names = ['APERIODIC', 'CONSTANT', 'CONTACT_ROT', 'DSCT_BCEP', 'ECLIPSE', 'GDOR_SPB', 'RRLYR_CEPHEID', 'SOLARLIKE']
+        # Check if all entries in the first column of self.labels are not None
+        if np.all(self.labels[:, 0] != None):
+            self.num_starclasses = len(np.unique(self.labels[:, 0]))
+        else:
+            self.num_starclasses = 8
+        if self.num_starclasses == 8:
+            self.starclass_names = ['APERIODIC', 'CONSTANT', 'CONTACT_ROT', 'DSCT_BCEP', 'ECLIPSE', 'GDOR_SPB', 'RRLYR_CEPHEID', 'SOLARLIKE']
+        elif self.num_starclasses == 9:
+            self.starclass_names = ['APERIODIC', 'CONSTANT', 'CONTACT_ROT', 'DSCT_BCEP', 'ECLIPSE', 'GDOR_SPB', 'RRLYR_CEPHEID', 'SOLARLIKE', 'UNKNOWN']
+        else:
+            raise ValueError(f"Unexpected number of starclasses: {self.num_starclasses}")
         self.starclass_name_to_int = {name: i for i, name in enumerate(self.starclass_names)}
         self.starclass_int_to_name = {v: k for k, v in self.starclass_name_to_int.items()}
-        self.num_starclasses = len(self.starclass_name_to_int)
         
         # Extract starclass integer labels from the first column of self.labels
         starclass_names = self.labels[:, 0].astype(str)
@@ -334,13 +343,21 @@ class TESSDataset(Dataset):
 class TESSDatasetProcessed(TESSDataset):
     def __init__(self, data_dir: Path, train: bool, extract: bool = False,
                  raw_data_dir: Optional[Path] = None, tess_xmatch_catalog_path: Optional[Path] = None,
-                 targets_path: Optional[Path] = None):
+                 targets_path: Optional[Path] = None, process_lightcurves: bool = True):
         super().__init__(data_dir, train, extract, raw_data_dir, tess_xmatch_catalog_path, targets_path)
         
         # Process the lightcurves (normalize w/ mean and std)
-        self.process_lightcurves()
+        if process_lightcurves:
+            self.process_lightcurves()
+        else:
+            self.fluxes_normalized = self.fluxes
+            self.fluxes_errs_normalized = self.fluxes_errs
+            self.times_normalized = self.times
         self.to_tensor()
-        self._total_flux_mean = np.nanmean(self._fluxes_medians)
+        if process_lightcurves:
+            self._total_flux_mean = np.nanmean(self._fluxes_medians)
+        else:
+            self._total_flux_mean = np.nanmean(self.fluxes)
     
     def __len__(self):
         return len(self.fluxes)
@@ -529,6 +546,10 @@ class TESSDatasetProcessed(TESSDataset):
         self.fluxes_errs_normalized = torch.tensor(self.fluxes_errs_normalized, dtype=torch.float32)
         self.times_normalized = torch.tensor(self.times_normalized, dtype=torch.float32)
 
+    def get_weights(self):
+        total = self.starclass.sum()
+        class_weights =  total / self.starclass.sum(axis=0)   # type: ignore
+        return class_weights
 
 class TESSDatasetProcessedSubset(TESSDatasetProcessed):
     def __init__(self, num_lightcurves: int, data_dir: Path, train: bool, extract: bool = False,

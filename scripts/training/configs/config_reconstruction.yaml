@@ -28,7 +28,7 @@ unimodal:
       model_dim: 128
       encoder_layers: null
       decoder_layers: null
-      encoder_heads: 16
+      encoder_heads: 32
       decoder_heads: null
     components:
       concat: null

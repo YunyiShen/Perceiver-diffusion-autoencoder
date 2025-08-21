@@ -2,9 +2,9 @@ env: local
 
 testing:  
   # Override with model directory (containing ./checkpoints and ./hparams.yaml)
-  model_dir: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tessv1/daep_classifier_unimodal_lightcurves/pretrained_unfrozen_dim_16-16-4-16-128_classifier_dropout0.1-num_classes8_concatTrue_sinposFalse_fourierTrue_use_uncertaintyFalse_regularize0.0_lr1e-4_weight_decay1e-5_date2025-08-14_10-12
+  model_dir: /home/altair/Documents/UROP/2025_Summer/Perceiver-diffusion-autoencoder/models/tessv1/daep_classifier_unimodal_lightcurves/v4pretrained_frozen_transformer_dim_16-16-4-16-128_classifier_dropout0.1-num_classes8_concatTrue_sinposFalse_fourierTrue_use_uncertaintyFalse_regularize0.0_lr1e-4_weight_decay1e-5_date2025-08-21_14-13
   num_test_instances: -1
   num_samples: null
   num_examples: 3
   save_results: null
-  batch: 4
+  batch: 8

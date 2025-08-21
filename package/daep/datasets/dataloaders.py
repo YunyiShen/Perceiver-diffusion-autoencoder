@@ -39,10 +39,15 @@ def create_dataloader(config, data_types, data_names, train=True, subset_size=No
     elif len(data_types) == 1 and data_types[0] == "lightcurves":
         data_path = Path(config["data"]["data_path"]) / 'lightcurves'
         test_name = data_names[0]
+        if 'process_lightcurves' in config:
+            process_lightcurves = config['process_lightcurves']
+        else:
+            process_lightcurves = True
         from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
         full_dataset = TESSDatasetProcessed(
             data_dir=data_path / test_name, 
             train=train, 
+            process_lightcurves=process_lightcurves
         )
         collate_fn = padding_collate_fun(supply=['flux', 'time'], mask_by="flux", multimodal=False)
         
@@ -121,3 +126,31 @@ def create_dataloader(config, data_types, data_names, train=True, subset_size=No
             pin_memory=True
         )
         return testing_loader
+
+def get_weights_and_num_classes(dataloader, weight=True):
+    
+    dataset = dataloader.dataset
+    while hasattr(dataset, 'dataset'):
+        dataset = dataset.dataset
+    
+    if hasattr(dataset, 'lightcurve_dataset'):
+        dataset = dataset.lightcurve_dataset
+    
+    if weight:
+        weights = dataset.get_weights()
+        # # Bound all weights by the second highest weight.
+        # weights_np = np.array(weights)
+        # unique_sorted = np.sort(np.unique(weights_np))[::-1]
+        # second_highest = unique_sorted[1]
+        # weights = np.minimum(weights_np, second_highest).tolist()
+        print(f"Using weights: {weights}")
+    else:
+        weights = None
+    num_classes = dataset.num_starclasses
+    
+    return weights, num_classes
+
+def update_config_with_num_classes(config, num_classes):
+    config['unimodal']['architecture']['classifier']['shape']['num_classes'] = num_classes
+    config['multimodal']['architecture']['classifier']['shape']['num_classes'] = num_classes
+    return config

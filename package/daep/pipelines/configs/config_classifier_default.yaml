@@ -25,9 +25,10 @@ training:
 unimodal:
   architecture:
     classifier:
-      simple: false
+      classifier_type: cnn
       shape:
         num_classes: 8
+        weight_by_class: false
       components:
         classifier_dropout: 0.1
         regularize: 0.0

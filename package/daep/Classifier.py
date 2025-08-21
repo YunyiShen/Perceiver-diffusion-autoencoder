@@ -3,6 +3,124 @@ import torch.nn as nn
 import torch.nn.functional as F
 from daep.PhotometricLayers import photometricTransceiverEncoder2stages
 from daep.util_layers import MLP
+from torch.nn import MultiheadAttention
+
+class TransformerClassifier(nn.Module):
+    """
+    Transformer-based classifier using a complete transformer encoder architecture.
+
+    Parameters
+    ----------
+    bottleneck_dim : int
+        Input feature dimension.
+    bottleneck_len : int
+        Input sequence length.
+    dropout_p : float
+        Dropout probability.
+    num_classes : int
+        Number of output classes.
+    """
+    def __init__(self, bottleneck_dim, bottleneck_len, dropout_p, num_classes):
+        super(TransformerClassifier, self).__init__()
+        
+        self.flattened_dim = bottleneck_dim * bottleneck_len
+        
+        # Transformer encoder layers
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=bottleneck_dim,
+            nhead=16,
+            dim_feedforward=self.flattened_dim,
+            dropout=dropout_p,
+            activation='silu',
+            batch_first=True,
+        )
+        
+        self.transformer_encoder = nn.TransformerEncoder(
+            encoder_layer, 
+            num_layers=4,
+            norm=nn.LayerNorm(bottleneck_dim)
+        )
+        
+        # Classification head
+        self.classifier_head = nn.Sequential(
+            nn.LayerNorm(self.flattened_dim),
+            nn.Dropout(dropout_p),
+            nn.Linear(self.flattened_dim, self.flattened_dim),
+            nn.SiLU(),
+            nn.LayerNorm(self.flattened_dim),
+            nn.Dropout(dropout_p),
+            nn.Linear(self.flattened_dim, self.flattened_dim // 2),
+            nn.SiLU(),
+            nn.LayerNorm(self.flattened_dim // 2),
+            nn.Dropout(dropout_p),
+            nn.Linear(self.flattened_dim // 2, num_classes),
+        )
+        
+        # # Global average pooling for sequence aggregation
+        # self.global_pool = nn.AdaptiveAvgPool1d(1)
+
+    def forward(self, x, return_attention=False):
+        """
+        Forward pass for the TransformerClassifier.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input tensor of shape (batch_size, bottleneck_len, bottleneck_dim).
+            For 2D bottlenecks like 16x16, this would be (batch_size, 16, 16).
+        return_attention : bool, optional
+            If True, returns attention weights along with predictions.
+            Default is False.
+
+        Returns
+        -------
+        torch.Tensor or tuple
+            If return_attention=False: Output class probabilities of shape (batch_size, num_classes).
+            If return_attention=True: Tuple of (class_probabilities, attention_weights).
+        """
+        
+        # Pass through transformer encoder
+        if return_attention:
+            # Custom forward pass to capture attention weights
+            attention_weights = []
+            hidden_states = x
+            
+            # Iterate through each transformer layer to capture attention
+            for layer in self.transformer_encoder.layers:
+                # Get attention weights from self-attention
+                attn_output, attn_weights = layer.self_attn(
+                    hidden_states, hidden_states, hidden_states
+                )
+                attention_weights.append(attn_weights)
+                
+                # Apply the rest of the layer
+                hidden_states = layer.norm1(attn_output + hidden_states)
+                ff_output = layer.linear2(
+                    layer.dropout(layer.activation(layer.linear1(hidden_states)))
+                )
+                hidden_states = layer.norm2(ff_output + hidden_states)
+            
+            x = hidden_states
+        else:
+            # Standard forward pass
+            x = self.transformer_encoder(x)
+        
+        # Flatten the output
+        x = x.view(x.size(0), -1)
+        
+        # Classification head
+        x = self.classifier_head(x)  # (batch, num_classes)
+        
+        # Apply softmax for class probabilities
+        x = F.softmax(x, dim=-1)
+        
+        if return_attention:
+            # Return both predictions and attention weights
+            # attention_weights is a list of tensors, one per layer
+            # Each tensor has shape (batch_size, num_heads, seq_len, seq_len)
+            return x, attention_weights
+        else:
+            return x
 
 class LCC(nn.Module):
     """
