@@ -348,7 +348,7 @@ class crossmodaldaep(nn.Module):
     def inference(self, x_0, ddim = True, ddim_steps = 200):
         name = self.query_name
         z = self.encode(x_0[self.source_modility])
-        noise = torch.randn_like(x_0[self.target_modality][name]).to(x_0[name].device)
+        noise = torch.randn_like(x_0[self.target_modality][name]).to(x_0[self.target_modality][name].device)
         x_t = x_0
         x_t[self.target_modality][self.name] = noise
         return self.sample(z, x_t[self.target_modality], ddim, ddim_steps)
