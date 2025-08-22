@@ -159,8 +159,12 @@ def train(config_path: str, model_type: str, **kwargs):
     
     # Create dataloader using the shared function
     training_loader, validation_loader = create_dataloader(config, data_types, data_names)
-    weights, num_classes = get_weights_and_num_classes(training_loader, weight=config['unimodal']['architecture']['classifier']['shape']['weight_by_class'])
-    config = update_config_with_num_classes(config, num_classes)
+    if model_type == 'classifier':
+        weights, num_classes = get_weights_and_num_classes(training_loader, weight=config['unimodal']['architecture']['classifier']['shape']['weight_by_class'])
+        config = update_config_with_num_classes(config, num_classes)
+    else:
+        weights = None
+        num_classes = None
     
     # Initialize model
     model = initialize_model(model_type, data_types, config, weights)

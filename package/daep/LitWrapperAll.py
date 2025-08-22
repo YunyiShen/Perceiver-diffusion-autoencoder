@@ -11,7 +11,8 @@ from pathlib import Path
 from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverScore2stages
 from daep.PhotometricLayers import photometricTransceiverEncoder, photometricTransceiverScore2stages
 from daep.Perceiver import PerceiverEncoder
-from daep.Classifier import LCC, PhotClassifier, MLP, TransformerClassifier
+from daep.Classifier import LCC, PhotClassifier, TransformerClassifier
+from daep.util_layers import MLPFlatten
 from daep.daep import unimodaldaep, multimodaldaep, modality_drop, unimodaldaepclassifier, multimodaldaepclassifier
 from functools import partial
 
@@ -371,13 +372,14 @@ class daepClassifier(L.LightningModule):
     
     def training_step(self, batch, batch_idx):
         y_actual = batch['starclass']
-        x = batch
+        x = {k: v for k, v in batch.items() if k != 'starclass'}
         y_pred = self.forward(x)
         y_pred_indices = torch.argmax(y_pred, dim=1)
         # Ensure targets are class indices for loss/metrics
         y_actual_indices = y_actual.argmax(dim=1) if y_actual.ndim > 1 else y_actual
-
-        loss = self.loss_fn(y_pred, y_actual_indices)
+        
+        loss = self.loss_fn(y_pred, y_actual)
+        
         # torchmetrics.Accuracy supports (N,C) logits with (N,) labels
         acc = self.accuracy(y_pred, y_actual_indices)
         
@@ -395,7 +397,7 @@ class daepClassifier(L.LightningModule):
         y_pred_indices = torch.argmax(y_pred, dim=1)
         y_actual_indices = y_actual.argmax(dim=1) if y_actual.ndim > 1 else y_actual
 
-        loss = self.loss_fn(y_pred, y_actual_indices)
+        loss = self.loss_fn(y_pred, y_actual)
         acc = self.accuracy(y_pred, y_actual_indices)
 
         self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
@@ -409,11 +411,11 @@ class daepClassifier(L.LightningModule):
     def test_step(self, batch, batch_idx):
         y_actual = batch['starclass']
         y_actual_indices = y_actual.argmax(dim=1) if y_actual.ndim > 1 else y_actual
-        x = batch
+        x = {k: v for k, v in batch.items() if k != 'starclass'}
         y_pred = self.forward(x)
         y_pred_indices = torch.argmax(y_pred, dim=1)
 
-        loss = self.loss_fn(y_pred, y_actual_indices)
+        loss = self.loss_fn(y_pred, y_actual)
         acc = self.accuracy(y_pred_indices, y_actual_indices)
 
         self.conf_matrix.update(y_pred_indices.to(self.conf_matrix.device), y_actual_indices.to(self.conf_matrix.device))
@@ -433,11 +435,12 @@ class daepClassifierUnimodal(daepClassifier):
         
         self.data_type = config['data_types'][0]
         self.training_config = config['training']
-        self.class_weights = class_weights
         self.architecture_config = config['unimodal']['architecture']
         self.num_classes = self.architecture_config['classifier']['shape']['num_classes']
         
-        self.loss_fn = torch.nn.CrossEntropyLoss(weight=self.class_weights)
+        if class_weights is not None:
+            class_weights = torch.tensor(class_weights).to(self.device)
+        self.loss_fn = torch.nn.CrossEntropyLoss(weight=class_weights)
         self.accuracy = torchmetrics.Accuracy(task='multiclass', num_classes=self.num_classes)
         self.conf_matrix = MulticlassConfusionMatrix(num_classes=self.num_classes)
         
@@ -468,12 +471,12 @@ class daepClassifierUnimodal(daepClassifier):
                 print(f"Pretrained encoder must be part of a daepReconstructorUnimodal model")
                 raise ValueError(f"Failed to load pretrained encoder from {pretrained_encoder_ckpt_path}: {e}")
             pretrained_model = pretrained.model
-            encoder = pretrained_model.encoder
+            self.encoder = pretrained_model.encoder
             print(f"Loaded pretrained encoder from {pretrained_encoder_ckpt_path}")
             
             # Freeze the pretrained encoder parameters if specified
             if architecture_config['encoder']['pretrained']['freeze_pretrained_encoder']:
-                for param in encoder.parameters():
+                for param in self.encoder.parameters():
                     param.requires_grad = False
             
             # Load the pretrained encoder config and update the classifier architecture config to match
@@ -527,8 +530,10 @@ class daepClassifierUnimodal(daepClassifier):
             architecture_config['classifier']['shape']['bottlenecklen'] = architecture_config["encoder"]["new"]["shape"]["bottlenecklen"]
             
         # Initialize a new classifier
-        if config['unimodal']['architecture']['classifier']['classifier_type'] == 'simple':
-            self.classifier = MLP(architecture_config['classifier']['shape']['bottleneckdim'],
+        if config['unimodal']['architecture']['classifier']['classifier_type'] == 'mlp':
+            # MLP needs flattened input: bottleneck_len * bottleneck_dim
+            mlp_input_dim = architecture_config['classifier']['shape']['bottlenecklen'] * architecture_config['classifier']['shape']['bottleneckdim']
+            self.classifier = MLPFlatten(mlp_input_dim,
                                   architecture_config['classifier']['shape']['num_classes'],
                                   [64])
         elif config['unimodal']['architecture']['classifier']['classifier_type'] == 'transformer':
@@ -577,14 +582,14 @@ class daepClassifierUnimodal(daepClassifier):
         else:
             model_str = "fromscratch_"
         
-        if self.architecture_config['classifier']['classifier_type'] == 'simple':
-            model_str += "simple_"
+        if self.architecture_config['classifier']['classifier_type'] == 'mlp':
+            model_str += "mlp_"
         elif self.architecture_config['classifier']['classifier_type'] == 'transformer':
             model_str += "transformer_"
         elif self.architecture_config['classifier']['classifier_type'] == 'cnn':
             model_str += "cnn_"
         
-        if self.class_weights is not None:
+        if self.architecture_config['classifier']['shape']['weight_by_class']:
             model_str += "weighted_"
         
         model_str += f"dim_"
@@ -668,11 +673,11 @@ class daepClassifierMultimodal(daepClassifier):
             
             # Freeze the pretrained encoder parameters if specified
             if architecture_config['encoder']['freeze_pretrained_encoder']:
-                for param in spectra_tokenizer.parameters():
+                for param in self.spectra_tokenizer.parameters():
                     param.requires_grad = False
-                for param in photometry_tokenizer.parameters():
+                for param in self.photometry_tokenizer.parameters():
                     param.requires_grad = False
-                for param in encoder.parameters():
+                for param in self.encoder.parameters():
                     param.requires_grad = False
             
             # Load the pretrained encoder config and update the classifier architecture config to match

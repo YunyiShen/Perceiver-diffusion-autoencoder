@@ -1,26 +1,12 @@
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
-from tqdm import tqdm
 from typing import Optional, Tuple, Dict, Any, Union
-import os
-import json
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
-import seaborn as sns
 
 # Import the necessary modules
 from daep.data_util import to_device
-from daep.daep import unimodaldaepclassifier, multimodaldaepclassifier
-from torch.utils.data import DataLoader, Dataset
-
-from daep.datasets.GALAHspectra_dataset import GALAHDatasetProcessed
-from daep.datasets.TESSlightcurve_dataset import TESSDatasetProcessed
-from daep.datasets.TESSGALAHspeclc_dataset import TESSGALAHDatasetProcessed
-
 from daep.utils.general_utils import load_config, update_config
 from daep.datasets.dataloaders import create_dataloader
-from pytorch_lightning.loggers import CSVLogger
 import pytorch_lightning as L
 from daep.LitWrapperAll import (
     daepClassifierUnimodal,
@@ -36,8 +22,10 @@ from daep.utils.test_utils import (
     plot_confusion_matrix,
     plot_classification_metrics_summary,
     save_classification_results,
+    plot_class_averages,
+    plot_bottleneck_umap,
 )
-from daep.utils.test_callbacks import ClassifierPredictionWriter
+from daep.utils.test_callbacks import ClassifierPredictionWriter, BottleneckRepresentationWriter
 
 # Global device
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -117,6 +105,55 @@ def evaluate_classifier_model(model: L.LightningModule,
 
     return results
 
+# TODO: Fix this to not repeat predictions
+def evaluate_bottleneck_representations(model: L.LightningModule,
+                              test_loader,
+                              input_modalities: list,
+                              output_modalities: list) -> Dict[str, np.ndarray]:
+    """
+    Evaluate the classifier model on test data for each input/output modality pair.
+
+    Parameters
+    ----------
+    model : L.LightningModule
+        Trained classifier Lightning module (unimodal or multimodal).
+    test_loader : DataLoader
+        Prediction dataloader.
+    input_modalities : list of str | list of list[str] | list of tuple[str, ...]
+        Conditioning modalities per run (e.g., ["spectra", "lightcurves", "both"]) or
+        combinations returned by `all_subsets`.
+    output_modalities : list[str]
+        Output modalities to evaluate. For classification this is used for naming
+        star-id fields in the results.
+
+    Returns
+    -------
+    dict
+        Nested results keyed by input and output modality, containing:
+        - predictions: np.ndarray of predicted class indices
+        - ground_truth: np.ndarray of ground truth class indices
+        - prediction_probs: np.ndarray of class probabilities
+        - test_instance_idxs: np.ndarray of dataset indices
+        - sobject_ids or ticids: list of star IDs depending on output modality
+    """
+
+    bottleneck_results: Dict[str, Dict[str, Dict[str, Any]]] = {
+        in_mod: {out_mod: None for out_mod in output_modalities} for in_mod in input_modalities
+    }
+    bottleneck_avg_results: Dict[str, Dict[str, Dict[str, Any]]] = {
+        in_mod: {out_mod: None for out_mod in output_modalities} for in_mod in input_modalities
+    }
+
+    for in_mod in input_modalities:
+        for out_mod in output_modalities:
+            bottleneck_writer = BottleneckRepresentationWriter(input_modalities=in_mod, output_modality=out_mod, write_interval="batch")
+            trainer = L.Trainer(logger=False, enable_checkpointing=False, enable_model_summary=False, callbacks=[bottleneck_writer])
+            trainer.predict(model=model, dataloaders=test_loader)
+            bottleneck_avg_results[in_mod][out_mod] = bottleneck_writer.get_class_averages()
+            bottleneck_results[in_mod][out_mod] = bottleneck_writer.get_bottlenecks()
+
+    return bottleneck_avg_results, bottleneck_results
+
 def run_classification_tests(config_path: str,
                             plot_from_saved: bool = False,
                             save_results_only: bool = False,
@@ -186,6 +223,8 @@ def run_classification_tests(config_path: str,
     print("Evaluating classifier model...")
     results = evaluate_classifier_model(model, testing_loader, input_modality_combos, output_modalities)
     
+    bottleneck_avg_results, bottleneck_results = evaluate_bottleneck_representations(model, testing_loader, input_modality_combos, output_modalities)
+    
     # Metrics
     print("Calculating classification metrics...")
     metrics = calculate_classification_metrics(results, test_dataset,
@@ -207,6 +246,7 @@ def run_classification_tests(config_path: str,
                                 dataset=test_dataset)
     
     # Plots
+    # TODO: Clean up by moving input/output modality handling from utils to here
     if not save_results_only:
         print("Creating classification plots...")
         plot_confusion_matrix(results, analysis_dir,
@@ -218,6 +258,16 @@ def run_classification_tests(config_path: str,
         plot_classification_metrics_summary(metrics, analysis_dir,
                                             input_modalities=input_modality_combos,
                                             output_modalities=output_modalities)
+        
+        print("Creating bottleneck representation plots...")
+        plot_class_averages(bottleneck_avg_results, analysis_dir,
+                            input_modalities=input_modality_combos,
+                            output_modalities=output_modalities)
+        
+        print("Creating bottleneck UMAP plots...")
+        plot_bottleneck_umap(bottleneck_results, analysis_dir,
+                            input_modalities=input_modality_combos,
+                            output_modalities=output_modalities)
         
         print(f"\nClassification testing complete! Results and plots saved in '{analysis_dir}' directory.")
     else:

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH -J train_tessv3_classifier
-#SBATCH -o train_tessv3_classifier_%j.out
-#SBATCH -e train_tessv3_classifier_%j.err
+#SBATCH -J train_tess_20k
+#SBATCH -o train_tess_20k_%j.out
+#SBATCH -e train_tess_20k_%j.err
 #SBATCH --gres=gpu:4
 #SBATCH --gpus-per-node=4
 #SBATCH --nodes=1

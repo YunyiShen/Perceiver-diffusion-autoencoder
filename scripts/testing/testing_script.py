@@ -1,4 +1,3 @@
-from daep.pipelines.testing import run_tests
 from daep.pipelines.testing_classifier import run_classification_tests
 import fire
 

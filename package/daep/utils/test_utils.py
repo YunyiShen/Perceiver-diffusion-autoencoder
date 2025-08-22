@@ -11,6 +11,8 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support, con
 from torch.utils.data import Dataset
 from itertools import chain, combinations
 import seaborn as sns
+from umap import UMAP
+from sklearn.preprocessing import StandardScaler
 
 # Import the necessary modules
 from daep.daep import unimodaldaep, multimodaldaep
@@ -1079,3 +1081,176 @@ def save_classification_results(results: Dict[str, np.ndarray], metrics: Dict[st
                                       metrics[input_modality][output_modality],
                                       save_dir / f"input_{'-'.join(input_modality)}_output_{output_modality}",
                                       output_modality)
+
+def plot_class_averages(bottleneck_results, save_dir, input_modalities=None, output_modalities=None):
+    """
+    Plot class average bottleneck representations as a grid of colored squares.
+    
+    Parameters
+    ----------
+    bottleneck_results : dict
+        Dictionary containing class-wise average bottleneck representations
+    save_dir : Path
+        Directory to save results
+    input_modalities : list, optional
+        List of input modalities for multimodal models
+    output_modalities : list, optional
+        List of output modalities for multimodal models
+    """
+    
+    def primary(class_averages, save_dir):
+        # Get number of classes and determine grid layout
+        num_classes = len(class_averages)
+        grid_cols = int(np.ceil(np.sqrt(num_classes)))
+        grid_rows = int(np.ceil(num_classes / grid_cols))
+        
+        # Create figure and subplots
+        fig, axes = plt.subplots(grid_rows, grid_cols, figsize=(12, 8))
+        if num_classes == 1:
+            axes = [axes]
+        elif grid_rows == 1:
+            axes = axes.reshape(1, -1)
+        elif grid_cols == 1:
+            axes = axes.reshape(-1, 1)
+        else:
+            axes = axes.flatten()
+        
+        # Get global min/max for consistent color scaling
+        all_values = []
+        for avg_rep in class_averages.values():
+            all_values.extend(avg_rep.flatten())
+        vmin, vmax = np.min(all_values), np.max(all_values)
+        
+        # Plot each class average
+        for idx, (class_idx, avg_rep) in enumerate(class_averages.items()):
+            ax = axes[idx]
+            
+            # Reshape to 2D if needed (assuming square-like dimensions)
+            if len(avg_rep.shape) == 1:
+                # 1D array - try to make it square-ish
+                dim = int(np.ceil(np.sqrt(avg_rep.shape[0])))
+                padded = np.zeros(dim * dim)
+                padded[:avg_rep.shape[0]] = avg_rep
+                avg_rep_2d = padded.reshape(dim, dim)
+            elif len(avg_rep.shape) == 2:
+                avg_rep_2d = avg_rep
+            else:
+                # Higher dimensional - take mean across last dimension
+                avg_rep_2d = np.mean(avg_rep, axis=-1)
+            
+            # Create the heatmap
+            im = ax.imshow(avg_rep_2d, cmap='viridis', vmin=vmin, vmax=vmax, aspect='equal')
+            ax.set_title(f'Class {class_idx}')
+            ax.axis('off')
+            
+            # Add colorbar to the first subplot
+            if idx == 0:
+                cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+                cbar.set_label('Bottleneck Value')
+        
+        # Hide unused subplots
+        for idx in range(num_classes, len(axes)):
+            axes[idx].axis('off')
+        
+        plt.suptitle('Class Average Bottleneck Representations', fontsize=16, y=0.95)
+        plt.tight_layout()
+        
+        # Save plot
+        save_path = save_dir / f'bottleneck_representations.png'
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Bottleneck representations saved to: {save_path}")
+
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            subdir = save_dir / f"input_{'-'.join(input_modality)}_output_{output_modality}"
+            primary(bottleneck_results[input_modality][output_modality], subdir)
+    
+def plot_bottleneck_umap(bottleneck_results, save_dir, input_modalities=None, output_modalities=None):
+    """
+    Plot bottleneck representations using UMAP.
+    
+    Parameters
+    ----------
+    bottleneck_results : dict
+        Dictionary containing bottleneck representations
+    save_dir : Path
+        Directory to save results
+    input_modalities : list, optional
+        List of input modalities for multimodal models
+    output_modalities : list, optional
+        List of output modalities for multimodal models
+    """
+    
+    def primary(bottleneck_data, save_dir):
+        # Extract bottleneck representations and labels
+        bottlenecks = bottleneck_data.get('bottleneck_representations')
+        ground_truth = bottleneck_data.get('ground_truth')
+        
+        if bottlenecks is None or ground_truth is None:
+            print("Missing bottleneck representations or ground truth data")
+            return
+        
+        # Flatten bottleneck representations for UMAP
+        bottlenecks_flat = bottlenecks.reshape(len(bottlenecks), -1)
+        
+        try:
+            # Standardize the data
+            scaler = StandardScaler()
+            bottlenecks_scaled = scaler.fit_transform(bottlenecks_flat)
+            
+            # Apply UMAP
+            print("Computing UMAP embedding...")
+            reducer = UMAP(
+                n_components=2,
+                n_neighbors=min(15, len(bottlenecks) // 4),  # Adaptive neighbors
+                min_dist=0.4,
+                random_state=42,
+                metric='euclidean'
+            )
+            embedding = reducer.fit_transform(bottlenecks_scaled)
+            
+            # Create the plot
+            fig, ax = plt.subplots(figsize=(10, 8))
+            
+            # Get unique classes and create color map
+            unique_classes = np.unique(ground_truth)
+            colors = plt.cm.tab10(np.linspace(0, 1, len(unique_classes)))
+            
+            # Plot each class with different colors
+            for i, class_idx in enumerate(unique_classes):
+                mask = ground_truth == class_idx
+                ax.scatter(
+                    embedding[mask, 0], 
+                    embedding[mask, 1], 
+                    c=[colors[i]], 
+                    label=f'Class {class_idx}',
+                    alpha=0.7,
+                    s=30,
+                    edgecolors='white',
+                    linewidth=0.5
+                )
+            
+            ax.set_xlabel('UMAP Component 1')
+            ax.set_ylabel('UMAP Component 2')
+            ax.set_title('UMAP Visualization of Bottleneck Representations')
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            ax.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            
+            # Save plot
+            save_path = save_dir / f'bottleneck_umap.png'
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"UMAP visualization saved to: {save_path}")
+            
+        except Exception as e:
+            print(f"Error computing UMAP: {e}")
+            return
+    
+    # Process each modality combination
+    for input_modality in input_modalities:
+        for output_modality in output_modalities:
+            subdir = save_dir / f"input_{'-'.join(input_modality)}_output_{output_modality}"
+            primary(bottleneck_results[input_modality][output_modality], subdir)

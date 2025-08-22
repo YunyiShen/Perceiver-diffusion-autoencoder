@@ -31,7 +31,7 @@ class TransformerClassifier(nn.Module):
             nhead=16,
             dim_feedforward=self.flattened_dim,
             dropout=dropout_p,
-            activation='silu',
+            activation='gelu',
             batch_first=True,
         )
         
@@ -111,8 +111,7 @@ class TransformerClassifier(nn.Module):
         # Classification head
         x = self.classifier_head(x)  # (batch, num_classes)
         
-        # Apply softmax for class probabilities
-        x = F.softmax(x, dim=-1)
+        # Return raw logits (no softmax - CrossEntropyLoss expects raw logits)
         
         if return_attention:
             # Return both predictions and attention weights
@@ -138,25 +137,39 @@ class LCC(nn.Module):
         self.cnn1 = nn.Conv2d(in_channels=1, out_channels=4, kernel_size=3, padding=1)
         self.cnn2 = nn.Conv2d(in_channels=4, out_channels=final_outchannels, kernel_size=3, padding=1)
         self.cnn_activation = nn.SiLU()
-        self.cnn_pool = nn.AdaptiveAvgPool2d((bottleneck_len, bottleneck_dim))
+        # Use global average pooling to reduce spatial dimensions to (1, 1)
+        self.cnn_pool = nn.AdaptiveAvgPool2d((1, 1))
         
         # Calculate total CNN output dimension after flattening
-        # CNN output: (batch_size, 16, bottleneck_len, bottleneck_dim)
-        # Flattened: (batch_size, 16 * bottleneck_len * bottleneck_dim)
-        self.total_cnn_output_dim = final_outchannels * bottleneck_len * bottleneck_dim
+        # CNN output: (batch_size, 16, 1, 1) -> flattened to (batch_size, 16)
+        self.total_cnn_output_dim = final_outchannels
+        
+        # self.classifier_head = nn.Sequential(
+        #     nn.Dropout(dropout_p),
+        #     nn.Linear(self.total_cnn_output_dim, self.total_cnn_output_dim),
+        #     nn.LayerNorm(self.total_cnn_output_dim),
+        #     nn.SiLU(),
+        #     nn.Dropout(dropout_p),
+        #     nn.Linear(self.total_cnn_output_dim, 32),
+        #     nn.LayerNorm(32),
+        #     nn.SiLU(),
+        #     nn.Dropout(dropout_p),
+        #     nn.Linear(32, num_classes),
+        #     nn.LayerNorm(num_classes)
+        # )
         
         # Fully connected layers for classification
         self.fc1 = nn.Linear(self.total_cnn_output_dim, self.total_cnn_output_dim)
         # self.fc2 = nn.Linear(self.total_cnn_output_dim, self.total_cnn_output_dim)
-        self.fc3 = nn.Linear(self.total_cnn_output_dim, 20)
-        self.fc4 = nn.Linear(20, num_classes)
+        self.fc3 = nn.Linear(self.total_cnn_output_dim, 32)
+        self.fc4 = nn.Linear(32, num_classes)
         
         # Activation and normalization layers
         self.swish = nn.SiLU()
         # Fixed: Use correct dimensions for layer normalization after CNN processing
         self.norm0 = nn.LayerNorm(normalized_shape=self.total_cnn_output_dim)
         # self.norm1 = nn.LayerNorm(normalized_shape=self.total_cnn_output_dim)
-        self.norm2 = nn.LayerNorm(normalized_shape=20)
+        self.norm2 = nn.LayerNorm(normalized_shape=32)
         self.norm3 = nn.LayerNorm(normalized_shape=num_classes)
         
         # Dropout layers for regularization
@@ -194,10 +207,10 @@ class LCC(nn.Module):
         x_cnn = self.cnn_activation(x_cnn)
         x_cnn = self.cnn2(x_cnn)
         x_cnn = self.cnn_activation(x_cnn)
-        x_cnn = self.cnn_pool(x_cnn)  # (batch_size, 16, bottleneck_len, bottleneck_dim)
+        x_cnn = self.cnn_pool(x_cnn)  # (batch_size, 16, 1, 1)
 
         # Flatten CNN output for fully connected layers
-        x_flat = x_cnn.view(x_cnn.size(0), -1)  # (batch_size, 16 * bottleneck_len * bottleneck_dim)
+        x_flat = x_cnn.view(x_cnn.size(0), -1)  # (batch_size, 16)
 
         # Apply dropout and first fully connected layer
         x = self.dropout(x_flat)
@@ -222,9 +235,8 @@ class LCC(nn.Module):
         x = self.fc4(x)
         x = self.norm3(x)
 
-        # Apply softmax to get class probabilities
-        # Ensure output shape is always (batch_size, num_classes)
-        x = F.softmax(x, dim=-1)
+        # Return raw logits (no softmax - CrossEntropyLoss expects raw logits)
+        # Output shape is (batch_size, num_classes)
 
         return x
 

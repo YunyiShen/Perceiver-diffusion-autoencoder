@@ -33,6 +33,23 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.mlp(x)
 
+class MLPFlatten(nn.Module):
+    def __init__(self, in_dim, out_dim, hidden_dim = [64,64]):
+        super(MLPFlatten, self).__init__()
+        layers = []
+        for i in range(len(hidden_dim)):
+            if i == 0:
+                layers.append(nn.Linear(in_dim, hidden_dim[i]))
+            else:
+                layers.append(nn.Linear(hidden_dim[i-1], hidden_dim[i]))
+            layers.append(nn.ReLU())
+        layers.append(nn.Linear(hidden_dim[-1], out_dim))
+        self.mlp = nn.Sequential(*layers)
+    
+    def forward(self, x):
+        if x.dim() == 3:
+            x = x.view(x.size(0), -1)
+        return self.mlp(x)
 
 ############ Transformer use ##################
 ################# positional encoding ###################

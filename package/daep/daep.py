@@ -374,7 +374,15 @@ class unimodaldaepclassifier(nn.Module):
             If no targets: class predictions
         """
         z = self.encoder(x)
-        class_output = self.classifier(z)
+        
+        # Handle different classifier input requirements
+        if hasattr(self.classifier, 'mlp'):  # MLP classifier
+            # Flatten the encoder output for MLP: (batch_size, bottleneck_len, bottleneck_dim) -> (batch_size, bottleneck_len * bottleneck_dim)
+            z_flat = z.view(z.size(0), -1)
+            class_output = self.classifier(z_flat)
+        else:
+            # Other classifiers (Transformer, CNN) can handle 3D input directly
+            class_output = self.classifier(z)
         
         # Compute MMD regularization loss if enabled
         if self.MMD is not None and hasattr(self, 'prior'):
@@ -393,7 +401,8 @@ class unimodaldaepclassifier(nn.Module):
             total_loss = classification_loss + mmd_loss
             return classification_loss, mmd_loss, total_loss
         else:
-            return F.softmax(class_output, dim=-1)
+            # Return raw logits for loss calculation, apply softmax only for final predictions
+            return class_output
     
     def predict(self, x):
         """
@@ -401,7 +410,8 @@ class unimodaldaepclassifier(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            return self.forward(x)
+            logits = self.forward(x)
+            return F.softmax(logits, dim=-1)
 
 
 class multimodaldaepclassifier(nn.Module):

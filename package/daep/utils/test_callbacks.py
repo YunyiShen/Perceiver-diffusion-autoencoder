@@ -491,3 +491,110 @@ class ClassifierPredictionWriter(BasePredictionWriter):
         if torch.is_tensor(x):
             return x.detach().cpu().numpy()
         return np.asarray(x)
+
+
+class BottleneckRepresentationWriter(BasePredictionWriter):
+    """
+    Extracts bottleneck representations from the model during prediction and computes class-wise averages.
+    
+    Parameters
+    ----------
+    input_modalities : {"spectra", "lightcurves", "both"} or list[str]
+        Conditioning modalities for multimodal models.
+    output_modality : str
+        The modality being predicted ("spectra" or "lightcurves").
+    write_interval : {"batch", "epoch"}
+        Callback write interval. Defaults to "batch".
+    """
+    
+    def __init__(self, input_modalities: Union[str, List[str]], output_modality: str, 
+                 write_interval: str = "batch") -> None:
+        super().__init__(write_interval=write_interval)
+        
+        # Normalize conditioning keys for multimodal models
+        if isinstance(input_modalities, str):
+            mapping: Dict[str, List[str]] = {
+                "spectra": ["spectra"],
+                "lightcurves": ["photometry"],
+                "both": ["spectra", "photometry"],
+                "photometry": ["photometry"],
+            }
+            self._condition_keys: List[str] = mapping[input_modalities]
+        else:
+            self._condition_keys = list(input_modalities)
+        
+        # Accumulators
+        self._bottleneck_reps: List[np.ndarray] = []
+        self._labels: List[np.ndarray] = []
+
+    def write_on_batch_end(
+        self,
+        trainer: L.Trainer,
+        pl_module: L.LightningModule,
+        predictions: Any,
+        batch_indices: Optional[Sequence[int]],
+        batch: Dict[str, Any],
+        batch_idx: int,
+        dataloader_idx: int,
+    ) -> None:
+        """Extract bottleneck representations from the model."""
+        base_model = getattr(pl_module, "model", pl_module)
+        
+        # Extract bottleneck representations
+        if isinstance(base_model, unimodaldaepclassifier):
+            bottleneck_reps = base_model.encoder(batch)
+        elif isinstance(base_model, multimodaldaepclassifier):
+            bottleneck_reps = base_model.encode(batch, keys=self._condition_keys)
+        else:
+            if hasattr(base_model, "encoder"):
+                bottleneck_reps = base_model.encoder(batch)
+            else:
+                raise ValueError("Model does not have an accessible encoder")
+        
+        # Convert to numpy and accumulate
+        bottleneck_reps_np = self._to_numpy(bottleneck_reps)
+        targets_np = self._to_numpy(batch.get("starclass", []))
+        
+        self._bottleneck_reps.append(bottleneck_reps_np)
+        self._labels.append(np.argmax(targets_np, axis=1).astype(np.int64))
+
+    def on_predict_end(self, trainer: L.LightningModule, pl_module: L.LightningModule) -> None:
+        """Concatenate all accumulated bottleneck representations and compute class averages."""
+        if len(self._bottleneck_reps) == 0:
+            return
+        
+        # Concatenate all batches
+        self.bottlenecks = np.concatenate(self._bottleneck_reps, axis=0)
+        print(self.bottlenecks.shape)
+        
+        self.labels = np.concatenate(self._labels, axis=0)
+        print(self.labels.shape)
+        
+        # Compute class-wise averages
+        unique_classes = np.unique(self.labels)
+        self.class_averages = {}
+        
+        for class_idx in unique_classes:
+            class_mask = self.labels == class_idx
+            class_bottlenecks = self.bottlenecks[class_mask]
+            self.class_averages[class_idx] = np.mean(class_bottlenecks, axis=0)
+    
+    def get_class_averages(self):
+        return self.class_averages
+
+    def get_bottlenecks(self):
+        result = {
+            "bottleneck_representations": self.bottlenecks,
+            "ground_truth": self.labels,
+        }
+        return result
+
+    @staticmethod
+    def _to_numpy(x: Any) -> np.ndarray:
+        """Convert tensor or other types to numpy array."""
+        if x is None:
+            return x
+        if torch.is_tensor(x):
+            return x.detach().cpu().numpy()
+        return np.asarray(x) 
+    
