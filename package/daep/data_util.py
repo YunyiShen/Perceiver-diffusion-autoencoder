@@ -353,3 +353,26 @@ def collate_fn_stack(batch):
 
  
 
+### hacky helper functions to save samples
+def save_dictlist(filename: str, data: list[dict[str, np.ndarray]]):
+    """
+    Save a list of dicts of numpy arrays to a .npz file.
+    Assumes all dicts have the same keys.
+    """
+    # Flatten structure: (i, key) -> array
+    arrays = {f"{i}_{k}": v for i, d in enumerate(data) for k, v in d.items()}
+    np.savez(filename, **arrays)
+
+
+def load_dictlist(filename: str) -> list[dict[str, np.ndarray]]:
+    """
+    Load a list of dicts of numpy arrays saved by save_dictlist.
+    """
+    loaded = np.load(filename)
+    # Extract indices and keys
+    entries = {}
+    for full_key in loaded.files:
+        idx, key = full_key.split("_", 1)
+        idx = int(idx)
+        entries.setdefault(idx, {})[key] = loaded[full_key]
+    return [entries[i] for i in sorted(entries.keys())]

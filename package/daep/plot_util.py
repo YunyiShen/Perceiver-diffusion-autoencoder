@@ -1,12 +1,14 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_lsst_lc(photoband, photomag, phototime, photomask, ax = None, label = False, s = 5, lw = 2, flip = True):
+def plot_lsst_lc(photoband, photomag, phototime, photomask, err = None, ax = None, label = False, s = 5, lw = 2, flip = True, line = True):
     lsst_bands = ["u", "g", "r", "i", "z", "y"]
     colors = ["purple", "blue", "darkgreen", "lime", "orange", "red"]
     photoband = photoband[~photomask]
     photomag = photomag[~photomask]
     phototime = phototime[~photomask]
+    if err is not None:
+        yerr = err[~photomask]
     if ax is None:
         fig, ax = plt.subplots()
     for bnd in range(6):
@@ -16,7 +18,10 @@ def plot_lsst_lc(photoband, photomag, phototime, photomask, ax = None, label = F
                 ax.scatter(phototime[idx], photomag[idx], label=lsst_bands[bnd], s=s, color=colors[bnd])
             else:
                 ax.scatter(phototime[idx], photomag[idx], s=s, color=colors[bnd])
-            ax.plot(phototime[idx], photomag[idx], color=colors[bnd], alpha=0.5, lw = lw)
+            if line:
+                ax.plot(phototime[idx], photomag[idx], color=colors[bnd], alpha=0.5, lw = lw)
+            if err is not None:
+                ax.errorbar(phototime[idx], photomag[idx], yerr=yerr[idx], fmt='o', capsize=1, color = colors[bnd])
     if flip:
         ax.invert_yaxis()
     if ax is None:

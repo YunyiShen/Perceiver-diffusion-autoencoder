@@ -54,7 +54,7 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
     
 
     training_data = AstroM3Dataset(aug=aug)
-
+    #breakpoint()
     training_loader = DataLoader(training_data, batch_size = batch, collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'],
                                                            mask_by="flux", multimodal=False))
     

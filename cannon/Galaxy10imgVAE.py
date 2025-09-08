@@ -129,7 +129,7 @@ def train(imgsize = 64, aug = 5, batch = 64,
             target_save = f'../ckpt/Galaxy10_vaesne_{latent_len}-{latent_dim}_{lr}_{i+1}_patch{patch_size}_beta{beta}_modeldim{model_dim}_numlayers{num_layers}_hybrid{hybrid}.pth'
             plt.plot(steps, all_losses)
             plt.show()
-            plt.savefig(f"./logs/Galaxy10_vaesne_{latent_len}-{latent_dim}_{lr}_{i+1}_patch{patch_size}_beta{beta}_modeldim{model_dim}_numlayers{num_layers}_hybrid{hybrid}.png")
+            plt.savefig(f"./logs/Galaxy10_vaesne_{latent_len}-{latent_dim}_{lr}_patch{patch_size}_beta{beta}_modeldim{model_dim}_numlayers{num_layers}_hybrid{hybrid}.png")
             plt.close()
             torch.save(my_vaesne, target_save)
         progress_bar.set_postfix(loss=f"epochs:{i}, {loss:.4f}")

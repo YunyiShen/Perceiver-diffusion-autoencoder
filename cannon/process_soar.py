@@ -7,15 +7,20 @@ from scipy.signal import medfilt
 
 
 class PhotoSpecData:
-    def __init__(self, data_dir="/n/holylabs/LABS/iaifi_lab/Lab/mmvae_sims/soar", 
+    def __init__(self, data_dir="/n/holylabs/LABS/iaifi_lab/Lab/mmvae_sims/gemini", 
                  data_root="SASSAFRAS_train_", 
-                 midfiltsize=3, centering=False, standardize=False, verbose=False):
+                 min_photo_counts = 10,
+                 min_spectra_counts = 20,
+                 midfiltsize=3, centering=False, 
+                 standardize=False, verbose=False):
         self.data_dir = data_dir
         self.data_root = data_root
         self.midfiltsize = midfiltsize
         self.centering = centering
         self.standardize = standardize
         self.verbose = verbose
+        self.min_photo_counts = min_photo_counts
+        self.min_spectra_counts = min_spectra_counts
 
         # raw buffers
         # spectra & photometry
@@ -26,6 +31,8 @@ class PhotoSpecData:
         self._raw_phot_masks = []
         self._raw_phot_bands = []
         self._raw_phot_phases = []
+        self._raw_phot_error = []
+        self._raw_spec_error = []
         # SN metadata
         self.snids = []
         self.sntypes = []
@@ -82,7 +89,7 @@ class PhotoSpecData:
                 pbands = np.array([b.decode('ascii') if isinstance(b, (bytes, bytearray)) else str(b) for b in raw_bands], dtype=object)
                 # filter by signal-to-noise ratio > 2
                 snr_mask = np.isfinite(pflux) & np.isfinite(perr) & (np.abs(pflux/perr) > 2.0)
-                if np.sum(snr_mask) < 10:  # skip if < 10 detections
+                if np.sum(snr_mask) < self.min_photo_counts:  # skip if < 10 detections
                     continue
                 pphase, pflux, perr, pbands = pphase[snr_mask], pflux[snr_mask], perr[snr_mask], pbands[snr_mask]
                 pmask = np.ones_like(pphase, dtype=bool)
@@ -115,9 +122,10 @@ class PhotoSpecData:
                     #breakpoint()
                     sw = wave[valid]
                     sf = rawf[valid].copy()
+                    flux_error = flux_err[valid].copy()
                     # filter by signal-to-noise ratio > 4, remove negative fluxes
                     snr_spec_mask = (np.isfinite(sf) & np.isfinite(flux_err[valid]) & (np.abs(sf/flux_err[valid]) > 4.0) & (sf > 0))
-                    if np.sum(snr_spec_mask) < 20:
+                    if np.sum(snr_spec_mask) < self.min_spectra_counts:
                         continue
                     
                     sf, sw = sf[snr_spec_mask], sw[snr_spec_mask]
@@ -134,7 +142,9 @@ class PhotoSpecData:
                     self._raw_spec_waves.append(sw)
                     self._raw_spec_fluxes.append(sf)
                     self._raw_spec_phases.append(spec_phase)
+                    self._raw_spec_error.append(flux_error)
                     self._raw_phot_fluxes.append(pflux)
+                    self._raw_phot_error.append(perr/pflux)
                     self._raw_phot_masks.append(pmask)
                     self._raw_phot_bands.append(pbands)
                     self._raw_phot_phases.append(pphase)
@@ -155,6 +165,7 @@ class PhotoSpecData:
         max_spec_len = max(len(x) for x in self._raw_spec_fluxes)  # longest spectrum length
         spec_waves = np.stack([np.pad(w, (0, max_spec_len-len(w)), constant_values=0.) for w in self._raw_spec_waves])
         spec_fluxes = np.stack([np.pad(f, (0, max_spec_len-len(f)), constant_values=0.) for f in self._raw_spec_fluxes])
+        spec_errors = np.stack([np.pad(f, (0, max_spec_len-len(f)), constant_values=0.) for f in self._raw_spec_error])
         spec_phases = np.array(self._raw_spec_phases, dtype=np.float32)
         spec_masks = np.stack([np.pad(np.ones(len(w), int), (0, max_spec_len-len(w)), constant_values=0) for w in self._raw_spec_waves])
         spec_masks = (spec_masks == 0).astype(np.int64)
@@ -162,6 +173,7 @@ class PhotoSpecData:
         max_phot_len = max(len(x) for x in self._raw_phot_fluxes)  # longest photometry length
         phot_fluxes = np.stack([np.pad(f, (0, max_phot_len-len(f)), constant_values=0.) for f in self._raw_phot_fluxes]).astype(np.float32)
         phot_masks = np.stack([np.pad(m.astype(int), (0, max_phot_len-len(m)), constant_values=0) for m in self._raw_phot_masks])
+        phot_errors = np.stack([np.pad(f, (0, max_phot_len-len(f)), constant_values=0.) for f in self._raw_phot_error]).astype(np.float32)
         phot_masks = (phot_masks == 0).astype(np.float32)
         phot_wavelengths = np.stack([np.pad(idx, (0, max_phot_len-len(idx)), constant_values=0) for idx in self._raw_phot_wavelengths]).astype(np.float32)
         phot_phases = np.stack([np.pad(ph, (0, max_phot_len-len(ph)), constant_values=0.) for ph in self._raw_phot_phases]).astype(np.float32)
@@ -175,17 +187,21 @@ class PhotoSpecData:
         redshift_final_errors = np.array(self.redshift_final_errors)
 
         return (
-            spec_waves, spec_fluxes, spec_masks, spec_phases,
-            phot_fluxes, phot_masks, phot_wavelengths, phot_phases,
+            spec_waves, spec_fluxes, spec_masks, spec_phases, spec_errors,
+            phot_fluxes, phot_masks, phot_wavelengths, phot_phases, phot_errors,
             snids, sntypes,
             redshift_helio, redshift_helio_errors, redshift_final, redshift_final_errors
         )
 
 
 if __name__=='__main__':
-    loader = PhotoSpecData(data_dir="/n/holylabs/LABS/iaifi_lab/Lab/mmvae_sims/soar", 
-                           centering=False, standardize=False)
-    sw, sf, sm, sp, pf, pm, pw, pph, snid, sntype, z_helio, z_helio_errors, z_final, z_final_errors = loader.load_data()
+    which_data = "soar"
+    loader = PhotoSpecData(data_dir=f"/n/holylabs/LABS/iaifi_lab/Lab/mmvae_sims/{which_data}", 
+                           centering=False, standardize=False,
+                           min_photo_counts = 20,
+                            min_spectra_counts = 80,
+                           )
+    sw, sf, sm, sp, s_error,pf, pm, pw, pph, phot_err, snid, sntype, z_helio, z_helio_errors, z_final, z_final_errors = loader.load_data()
 
     # get train / test splits
     D = sf.shape[0]
@@ -213,9 +229,11 @@ if __name__=='__main__':
 
     # save
     np.savez(
-        '../data/soar_dataset_full.npz',
+        f'../data/{which_data}_dataset_full_minphot{loader.min_photo_counts}_minspec{loader.min_spectra_counts}.npz',
         wavelength=sw_norm, flux=sf_norm, mask=sm, phase=sp_norm, 
+        spec_error = s_error,
         photoflux=pf_norm, photomask=pm, photowavelength=pw, photophase=pph_norm, 
+        photoerror = phot_err,
         wavelength_mean=sw_mean, wavelength_std=sw_std, 
         flux_mean=sf_mean, flux_std=sf_std, 
         phase_mean=sp_mean, phase_std=sp_std, 
@@ -226,11 +244,11 @@ if __name__=='__main__':
         snid=snid, sntype=sntype,
         redshift_helio=z_helio, redshift_helio_err=z_helio_errors, redshift_final=z_final, redshift_final_err=z_final_errors
     )
-    print("Saved dataset to dataset_full.npz")
+    print(f'saved at ../data/{which_data}_dataset_full_minphot{loader.min_photo_counts}_minspec{loader.min_spectra_counts}.npz')
 
     # print shapes of all keys
     from pprint import pprint
-    data = np.load('../data/soar_dataset_full.npz', allow_pickle=True)
+    data = np.load(f'../data/{which_data}_dataset_full_minphot{loader.min_photo_counts}_minspec{loader.min_spectra_counts}.npz', allow_pickle=True)
     for key in data.keys():
         arr = data[key]
         print(f"{key:15s} → shape {arr.shape}, dtype {arr.dtype}")

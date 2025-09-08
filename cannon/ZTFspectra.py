@@ -27,7 +27,7 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
           batch = 64, aug = 5, save_every = 20):
     
     data = np.load("../data/train_data_align_with_simu_minimal.npz")
-
+    #breakpoint()
     ### spectra ###
     flux, wavelength, mask = data['flux'], data['wavelength'], data['mask']
     phase = data['phase']

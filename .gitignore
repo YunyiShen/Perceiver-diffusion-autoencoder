@@ -180,3 +180,5 @@ ckpt
 *.err
 *.out
 *.pdf
+cannon/res/*
+*.npz
