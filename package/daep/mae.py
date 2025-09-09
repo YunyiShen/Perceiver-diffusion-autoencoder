@@ -29,15 +29,23 @@ class unimodalmae(nn.Module):
         """
         masked = torch.rand_like(x[self.name]) < self.mask_ratio
         if x.get("mask") is None:
-            x['mask'] = torch.full(x[self.name].shape, False, dtype=torch.bool)
+            x['mask'] = torch.full(x[self.name].shape, False, dtype=torch.bool).to(x[self.name].device)
         x_masked = copy.deepcopy(x)
         x_masked['mask'] = torch.logical_or(x['mask'], masked)
+        all_masked = x_masked['mask'].all(dim = -1)
+        if all_masked.any():
+            for i in torch.where(all_masked)[0]:
+                x_masked['mask'][i] = x['mask'][i] # fall back if all masked
+        
         x_masked[self.name][masked] = 0.0
         z = self.encoder(x_masked)  
-        x_recon = self.decoder(x, z, None) 
+        recloc = torch.logical_and(~x['mask'], masked)
+        x_recon = self.decoder(x, z, recloc, None) 
         #breakpoint()
         loss = self.loss_fn(x_recon, x[self.name])
-        recloc = torch.logical_and(~x['mask'], masked)
+        
         loss = (loss * recloc).sum()/recloc.sum()
+        if torch.isnan(loss):
+            breakpoint()
 
         return loss

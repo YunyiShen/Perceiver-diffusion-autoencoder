@@ -41,7 +41,7 @@ class ImgPosQuery(nn.Module):
             pos_embed = SinusoidalPositionalEmbedding2D(model_dim, img_size//patch_size,img_size//patch_size)._build_embedding()
             self.register_buffer('pos_embed', pos_embed, persistent=False)
         else:
-            self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.num_patches, model_dim))
+            self.pos_embed = nn.Parameter(torch.zeros(1, (img_size//patch_size) ** 2, model_dim))
     
     def forward(self):
         return self.pos_embed
@@ -299,7 +299,7 @@ class HostImgTransceiverDecoder(nn.Module):
             nn.Conv2d(mid_channels, in_channels, kernel_size=patch_size, padding='same')
         )
 
-    def forward(self, x, bottleneck, aux):
+    def forward(self, x, bottleneck, aux = None):
         '''
         Arg:
             query: should be a corrupted image 
@@ -310,7 +310,8 @@ class HostImgTransceiverDecoder(nn.Module):
         '''
         B = bottleneck.size(0) # batchs
         #model_dim = self.decoder.model_dim
-        h = self.tokenizer()
+        h = self.tokenizer().repeat((B, 1, 1))
+        #breakpoint()
         h = self.decoder(bottleneck, h, aux)
         h = h.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, -1)
         h = h.permute(0, 5, 1, 3, 2, 4).contiguous()

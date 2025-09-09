@@ -389,3 +389,76 @@ class photometricTransceiverDecoder(nn.Module):
         x = self.photometry_embd(time, band)
         #breakpoint()
         return self.Decoder(bottleneck, x, aux, mask).squeeze(-1)
+    
+    
+
+
+class photometricTransceiverMAEDecoder(nn.Module):
+    def __init__(self, #photometry_length,
+                 bottleneck_dim,
+                 num_bands,
+                 model_dim = 32,
+                 num_heads = 4, 
+                 ff_dim = 32, 
+                 num_layers = 4,
+                 fourier = False,
+                 dropout=0.1, 
+                 concat = True, 
+                 selfattn=False,
+                 cross_attn_only = False
+                 ):
+        '''
+        A transformer to decode something (latent) into photometry given time and band
+        Args:
+            
+            bottleneck_dim: dimension of the thing you want to decode, should be a tensor [batch_size, bottleneck_length, bottleneck_dim]
+            num_bands: number of bands, currently embedded as class
+            model_dim: dimension the transformer should operate 
+            num_heads: number of heads in the multiheaded attention
+            ff_dim: dimension of the MLP hidden layer in transformer
+            num_layers: number of transformer blocks
+            dropout: drop out in transformer
+            donotmask: should we ignore the mask when decoding?
+            selfattn: if we want self attention to the latent
+        '''
+        super().__init__()
+        self.Decoder = PerceiverDecoder(
+            bottleneck_dim,
+                 1,
+                 model_dim, 
+                 num_heads, 
+                 ff_dim, 
+                 num_layers,
+                 dropout, 
+                 selfattn,
+                 cross_attn_only
+        )
+        
+        if concat:
+            self.photometry_embd = photometryEmbeddingConcat(num_bands, model_dim, fourier)
+        else:
+            self.photometry_embd = photometryEmbedding(num_bands, model_dim, fourier)
+        self.model_dim = model_dim
+        self.bottleneck_dim = bottleneck_dim
+        self.maskembd = nn.Parameter(torch.randn(1, 1, model_dim))
+    
+    def forward(self, x, bottleneck, maemask, aux):
+        '''
+        Args:
+            x: a dictionary of 
+                flux: noisy photometry
+                time: time of the photometry being taken [batch_size, photometry_length]
+                band: band of the photometry being taken [batch_size, photometry_length]
+                mask: mask [batch_size, photometry_length]
+            bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
+        Return:
+            flux of the decoded photometry, [batch_size, photometry_length]
+        '''
+        flux, time, mask = x['flux'], x['time'], x['mask']
+        band = x.get("band")
+        x = self.photometry_embd(flux, time, band)
+        maemask = maemask[:, :, None].expand(-1,-1,x.shape[-1])
+        maskembd = self.maskembd.expand(x.shape[0], x.shape[1], -1)
+        x = torch.where(maemask, maskembd, x)
+        #breakpoint()
+        return self.Decoder(bottleneck, x, aux, mask).squeeze(-1)

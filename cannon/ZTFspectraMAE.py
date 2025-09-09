@@ -11,7 +11,7 @@ from torch.optim import AdamW
 from matplotlib import pyplot as plt
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 from daep.data_util import SpectraDatasetFromnp, collate_fn_stack, to_device
-from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverDecoder
+from daep.SpectraLayers import spectraTransceiverEncoder, spectraTransceiverMAEDecoder
 from daep.mae import unimodalmae
 import math 
 import os
@@ -64,12 +64,12 @@ def train(epoch=1000, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                     num_heads= encoder_heads
                     ).to(device)
 
-    spectraDecoder = spectraTransceiverDecoder(
+    spectraDecoder = spectraTransceiverMAEDecoder(
                     bottleneck_dim = bottleneckdim,
                     model_dim = model_dim,
                     ff_dim = model_dim,
                     num_layers = decoder_layers,
-                    #concat = concat,
+                    concat = concat,
                     cross_attn_only = cross_attn_only,
                     num_heads = decoder_heads
                     ).to(device)
