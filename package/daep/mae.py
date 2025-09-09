@@ -19,7 +19,9 @@ class unimodalmae(nn.Module):
     def reconstruct(self, x):
         z = self.encoder(x) 
         x_recon = copy.deepcopy(x)  
-        x_recon[self.name] = self.decoder(x_recon, z, None)
+        x_recon[self.name] *= 0.
+        recloc = x_recon[self.name] >= -1.
+        x_recon[self.name] = self.decoder(x_recon, z, recloc, None)
 
         return x_recon
     
