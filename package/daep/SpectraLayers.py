@@ -40,6 +40,30 @@ class spectraEmbedding(nn.Module):
 
 
 
+class wavelengthphaseEmbedding(nn.Module):
+    def __init__(self, model_dim = 32):
+        '''
+        spectra embedding, sinusoidal-MLP embedding for phase and added to 
+            linear embedding of flux, the append in seq space of phase
+        Arg: model_dim: model dimension
+            concat: if we use concatenate then projection to combine flux and wavelength
+        '''
+        super(wavelengthphaseEmbedding, self).__init__()
+        self.phase_embd_layer = SinusoidalMLPPositionalEmbedding(model_dim)# expand phase to bottleneck
+        self.wavelength_embd_layer = SinusoidalMLPPositionalEmbedding(model_dim)# expand wavelength to bottleneck
+    
+    def forward(self, wavelength, phase):
+        '''
+        Args:
+            wavelength, flux: wavelength and flux, of size [batch, len]
+            phase: phase, size [batch,]
+
+        '''
+        
+        phase_embd = self.phase_embd_layer(phase[:, None])
+        return torch.cat([self.wavelength_embd_layer(wavelength), phase_embd], dim=1)
+
+
 class spectraTransceiverScore(nn.Module):
     def __init__(self,
                  bottleneck_dim,
@@ -283,3 +307,128 @@ class spectraTransceiverEncoder2stages(nn.Module):
         x = self.encoder(x, mask)
         return x
 
+
+
+
+class spectraTransceiverDecoder(nn.Module):
+    def __init__(self,
+                 bottleneck_dim,
+                 model_dim = 32, 
+                 num_heads = 4, 
+                 ff_dim = 32, 
+                 num_layers = 4,
+                 dropout=0.1, 
+                 selfattn=False,
+                 cross_attn_only = False
+                 ):
+        '''
+        A transformer to decode something (latent) into spectra given time and band
+        Args:
+            bottleneck_dim: dimension of the thing you want to decode, should be a tensor [batch_size, bottleneck_length, bottleneck_dim]
+            num_bands: number of bands, currently embedded as class
+            model_dim: dimension the transformer should operate 
+            num_heads: number of heads in the multiheaded attention
+            ff_dim: dimension of the MLP hidden layer in transformer
+            num_layers: number of transformer blocks
+            dropout: drop out in transformer
+            selfattn: if we want self attention to the latent
+            cross_attn_only: if we want the score function to only have cross attention to the latent, better speed
+        '''
+        super(spectraTransceiverDecoder, self).__init__()
+        self.decoder = PerceiverDecoder(
+            bottleneck_dim,
+                 1,
+                 model_dim, 
+                 num_heads, 
+                 ff_dim, 
+                 num_layers,
+                 dropout, 
+                 selfattn,
+                 cross_attn_only
+        )
+        self.spectraEmbd = wavelengthphaseEmbedding(model_dim)
+        self.model_dim = model_dim
+        
+    
+    def forward(self, x, bottleneck, aux):
+        '''
+        Args:
+            x: a dictionary of: 
+                wavelength: wavelength of the spectra being taken [batch_size, spectra_length]
+                phase: phase of the spectra being taken [batch_size, 1]
+                mask: mask of spectra [batch_size, spectra_length]
+            bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
+        Return:
+            Decoded spectra of shape [batch_size, spectra_length]
+        '''
+        wavelength, phase, mask = x['wavelength'], x['phase'], x['mask']
+        x = self.spectraEmbd(wavelength, phase)
+        if aux is not None:
+            aux = torch.cat((x[:, -1,:][:, None, :], aux), axis = 1) # aux has original aux (diffusion time usually) and phase embedding
+        else:
+            aux = x[:, -1,:][:, None, :]
+        x = x[:, :-1, :]
+        return self.decoder(bottleneck, x, aux, mask).squeeze(-1) 
+
+
+class spectraTransceiverDecoder2stages(nn.Module):
+    def __init__(self,
+                 bottleneck_dim,
+                 hidden_len = 256,
+                 model_dim = 32, 
+                 num_heads = 4, 
+                 ff_dim = 32, 
+                 num_layers = 4,
+                 dropout=0.1, 
+                 selfattn=False,
+                 cross_attn_only = False
+                 ):
+        '''
+        A transformer to decode something (latent) into spectra given time and band
+        Args:
+            bottleneck_dim: dimension of the thing you want to decode, should be a tensor [batch_size, bottleneck_length, bottleneck_dim]
+            num_bands: number of bands, currently embedded as class
+            model_dim: dimension the transformer should operate 
+            num_heads: number of heads in the multiheaded attention
+            ff_dim: dimension of the MLP hidden layer in transformer
+            num_layers: number of transformer blocks
+            dropout: drop out in transformer
+            selfattn: if we want self attention to the latent
+            cross_attn_only: if we want the score function to only have cross attention to the latent, better speed
+        '''
+        super(spectraTransceiverDecoder2stages, self).__init__()
+        self.decoder = PerceiverDecoder2stages(
+            bottleneck_dim,
+            hidden_len,
+                 1,
+                 model_dim, 
+                 num_heads, 
+                 ff_dim, 
+                 num_layers,
+                 dropout, 
+                 selfattn,
+                 cross_attn_only
+        )
+        self.spectraEmbd = wavelengthphaseEmbedding(model_dim)
+        self.model_dim = model_dim
+        
+    
+    def forward(self, x, bottleneck, aux):
+        '''
+        Args:
+            x: a dictionary of: 
+                wavelength: wavelength of the spectra being taken [batch_size, spectra_length]
+                phase: phase of the spectra being taken [batch_size, 1]
+                mask: mask of spectra [batch_size, spectra_length]
+            bottleneck: bottleneck from the encoder [batch_size, bottleneck_length, bottleneck_dim]
+        Return:
+            Decoded spectra of shape [batch_size, spectra_length]
+        '''
+        wavelength, phase, mask = x['wavelength'], x['phase'], x['mask']
+        x = self.spectraEmbd(wavelength, phase)
+        if aux is not None:
+            aux = torch.cat((x[:, -1,:][:, None, :], aux), axis = 1) # aux has original aux (diffusion time usually) and phase embedding
+        else:
+            aux = x[:, -1,:][:, None, :]
+        x = x[:, :-1, :]
+        return self.decoder(bottleneck, x, aux, mask).squeeze(-1) 
