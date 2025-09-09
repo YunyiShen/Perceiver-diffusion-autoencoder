@@ -83,3 +83,29 @@ class imgTokenizer(nn.Module):
         image_embd = self.patch_embed(img)  # [B, N, D]
         image_embd = image_embd + self.pos_embed  # [B, N, D]
         return image_embd
+
+class imgDetokenizer(nn.Module):
+    def __init__(self, img_size, patch_size, in_channels, model_dim):
+        super().__init__()
+        assert img_size % patch_size == 0, "image size has to be divisible to patch size"
+        self.grid_size = img_size//patch_size
+        self.img_size = img_size
+        self.patch_size = patch_size
+
+        # final CNN for smoothing
+        mid_channels = model_dim * 4  # heuristic: scale with patch_size
+
+        self.final_refine = nn.Sequential(
+            nn.Conv2d(model_dim, mid_channels, kernel_size=patch_size, padding='same'),
+            nn.ReLU(),
+            nn.Conv2d(mid_channels, in_channels, kernel_size=patch_size, padding='same')
+        )
+    
+    def forward(self, h):
+        #breakpoint()
+        B = h.shape[0]
+        h = h.view(B, self.grid_size, self.grid_size, self.patch_size, self.patch_size, -1)
+        h = h.permute(0, 5, 1, 3, 2, 4).contiguous()
+        h = h.view(B, -1, self.img_size, self.img_size)  # [B, C, H, W]
+        # final smoothing
+        return self.final_refine(h)

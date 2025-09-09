@@ -13,6 +13,9 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 from daep.data_util import ImgH5DatasetAug, collate_fn_stack, to_device
 from daep.ImgLayers import HostImgTransceiverEncoder, HostImgTransceiverDecoder
 from daep.mae import unimodalmae
+from daep.imageMAE import ImgMAE
+from daep.tokenizers import imgTokenizer, imgDetokenizer
+from daep.Perceiver import PerceiverEncoder, PerceiverDecoder
 from tqdm import tqdm
 import os
 import fire
@@ -41,26 +44,41 @@ def train(epoch=200, lr = 2.5e-4, bottlenecklen = 4, bottleneckdim = 4,
                                  pin_memory=True,  # speeds up transfer to GPU
                                  collate_fn = collate_fn_stack)
 
-    img_encoder = HostImgTransceiverEncoder(img_size = imgsize,
-                    bottleneck_length = bottlenecklen,
-                    bottleneck_dim = bottleneckdim,
-                    model_dim = model_dim,
-                    ff_dim = model_dim,
-                    num_layers = encoder_layers,
-                    sincosin = sincosin,
-                    patch_size=patch).to(device)
+    
+    img_tokenizer = imgTokenizer(img_size = imgsize,
+                    patch_size=patch, 
+                    in_channels=3,
+                    model_dim = model_dim, 
+                    sincosin = sincosin)
+    
+    img_detokenizer = imgDetokenizer(
+        img_size = imgsize, patch_size = patch, 
+        in_channels = 3, model_dim = model_dim
+    )
+    
+    img_encoder = PerceiverEncoder(
+                bottleneck_length = bottlenecklen,
+                 bottleneck_dim = bottleneckdim,
+                 model_dim = model_dim, 
+                 num_heads = 4, 
+                 num_layers = encoder_layers,
+                 ff_dim = model_dim, 
+                 dropout = 0.1, 
+                 selfattn = False
+        ).to(device)
 
-    img_Decoder = HostImgTransceiverDecoder(
-        img_size = imgsize,
-        bottleneck_dim = bottleneckdim,
-        model_dim = model_dim,
-        ff_dim = model_dim,
-        num_layers = decoder_layers,
-        patch_size=patch,
-        sincosin = sincosin
+    img_decoder = PerceiverDecoder(
+                 bottleneckdim,
+                 model_dim * patch * patch,
+                 model_dim, 
+                 4, 
+                 model_dim, 
+                 decoder_layers,
+                 0.1, 
+                 False,
     ).to(device)
 
-    mymae = unimodalmae(img_encoder, img_Decoder, mask_rate).to(device)
+    mymae = ImgMAE(img_tokenizer, img_encoder, img_decoder, img_detokenizer, mask_rate).to(device)
     mymae.train()
     optimizer = AdamW(mymae.parameters(), lr=lr)
     epoch_loss = []
