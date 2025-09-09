@@ -35,12 +35,13 @@ class unimodalmae(nn.Module):
         all_masked = x_masked['mask'].all(dim = -1)
         if all_masked.any():
             for i in torch.where(all_masked)[0]:
-                x_masked['mask'][i] = x['mask'][i] # fall back if all masked
+                x_masked['mask'][i][0] = False # fall back if all masked
+                masked[i][0] = False
         
-        x_masked[self.name][masked] = 0.0
+        x_masked[self.name][x_masked['mask']] = 0.0
         z = self.encoder(x_masked)  
         recloc = torch.logical_and(~x['mask'], masked)
-        x_recon = self.decoder(x, z, recloc, None) 
+        x_recon = self.decoder(x_masked, z, recloc, None) 
         #breakpoint()
         loss = self.loss_fn(x_recon, x[self.name])
         

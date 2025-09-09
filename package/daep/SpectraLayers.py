@@ -500,7 +500,7 @@ class spectraTransceiverMAEDecoder(nn.Module):
         #breakpoint()
         maemask = maemask[:, :, None].expand(-1,-1,x.shape[-1])
         maskembd = self.maskembd.expand(x.shape[0], x.shape[1], -1)
-        x = torch.where(maemask, maskembd, x)
+        x = torch.where(maemask, maskembd + x, x)
         return self.decoder(bottleneck, x, aux, mask).squeeze(-1) 
 
 
@@ -569,5 +569,5 @@ class spectraTransceiverMAEDecoder2stages(nn.Module):
         #breakpoint()
         maemask = maemask[:, :, None].expand(-1,-1,x.shape[-1])
         maskembd = self.maskembd.expand(x.shape[0], x.shape[1], -1)
-        x = torch.where(maemask, maskembd, x)
+        x = torch.where(maemask, maskembd + x, x)
         return self.decoder(bottleneck, x, aux, mask).squeeze(-1) 
