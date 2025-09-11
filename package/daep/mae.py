@@ -16,14 +16,29 @@ class unimodalmae(nn.Module):
     def encode(self, x):
         return self.encoder(x)
     
-    def reconstruct(self, x):
-        z = self.encoder(x) 
-        x_recon = copy.deepcopy(x)  
-        x_recon[self.name] *= 0.
-        recloc = x_recon[self.name] >= -1.
-        x_recon[self.name] = self.decoder(x_recon, z, recloc, None)
-
-        return x_recon
+    def reconstruct(self, x, mask_ratio = None):
+        if mask_ratio is None:
+            mask_ratio = self.mask_ratio
+        masked = torch.rand_like(x[self.name]) < mask_ratio
+        if x.get("mask") is None:
+            x['mask'] = torch.full(x[self.name].shape, False, dtype=torch.bool).to(x[self.name].device)
+        x_masked = copy.deepcopy(x)
+        x_masked['mask'] = torch.logical_or(x['mask'], masked)
+        all_masked = x_masked['mask'].all(dim = -1)
+        if all_masked.any():
+            for i in torch.where(all_masked)[0]:
+                x_masked['mask'][i][0] = False # fall back if all masked
+                masked[i][0] = False
+        
+        x_masked[self.name][x_masked['mask']] = 0.0
+        z = self.encoder(x)  
+        recloc = torch.logical_and(~x['mask'], masked)
+        x_recon = self.decoder(x_masked, z, recloc, None) 
+        #breakpoint()
+        x_recon[~recloc] = x[self.name][~recloc]
+        x_masked[self.name] = x_recon
+        x_masked["mask"] = x.get("mask")
+        return x_masked
     
     def forward(self, x):
         """
