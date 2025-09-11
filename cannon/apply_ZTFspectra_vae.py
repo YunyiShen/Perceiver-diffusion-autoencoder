@@ -20,9 +20,9 @@ from daep.data_util import SpectraDatasetFromnp, collate_fn_stack, to_device, pa
 
 
 import copy
-
+which = "test"
 ### dataset ###
-test_data = np.load("../data/test_data_align_with_simu_minimal.npz")
+test_data = np.load(f"../data/{which}_data_align_with_simu_minimal.npz")
 
 ### spectra ###
 flux, wavelength, mask = test_data['flux'], test_data['wavelength'], test_data['mask']
@@ -47,7 +47,7 @@ test_loader = DataLoader(spectra_train_dataset, batch_size=128, shuffle=False)
 #test_loader = DataLoader(test_data, batch_size = 20, collate_fn = collate_fn_stack, shuffle = True)
 #breakpoint()
 ### 
-trained_vae = torch.load("../ckpt/ZTF_spectra_vaesne_4-4-128-4_heads4_0.00025_epoch2000_batch128_aug5_beta0.1.pth", # trained with K=1 on iwae
+trained_vae = torch.load("../ckpt/ZTF_spectra_vaesne_4-4-128-4_heads8_0.00025_epoch2000_batch128_aug5_beta0.1.pth", # trained with K=1 on iwae
                          map_location=torch.device('cpu'), weights_only = False).to(device)
 
 
@@ -78,7 +78,7 @@ for i, x in tqdm(enumerate(test_loader)):
             recon = trained_vae.reconstruct(x, K=5)
             all_rec.append(recon.detach().cpu().numpy())
 #breakpoint()
-    np.savez(f"./res/ZTFspectra/ZTF_spectra_vaesne_4-4-128-4_heads4_0.00025_epoch2000_batch128_aug5_beta0.1_batch{i}.npz",
+    np.savez(f"./res/ZTFspectra/ZTF_spectra_vaesne_4-4-128-4_heads8_0.00025_epoch2000_batch128_aug5_beta0.1_batch{i}.npz",
          rec = np.concatenate(all_rec)* flux_std + flux_mean,
          wavelength = x_ori[1].detach().cpu().numpy()* wavelength_std + wavelength_mean,
          flux = x_ori[0].detach().cpu().numpy()* flux_std + flux_mean,

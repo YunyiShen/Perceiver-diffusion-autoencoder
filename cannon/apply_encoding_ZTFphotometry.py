@@ -19,7 +19,7 @@ from tqdm import tqdm
 import copy
 
 
-data = np.load("../data/test_data_align_with_simu_minimal.npz")
+data = np.load("../data/train_data_align_with_simu_minimal.npz")
 
 photoflux, phototime, photoband = data['photoflux'], data['phototime'], data['photowavelength']
 photomask = data['photomask']
@@ -52,7 +52,15 @@ encode = trained_daep.encode(x)
 encode = to_np_cpu(encode)
 encode = encode.reshape(encode.shape[0], -1)
 
+ckpt_mae = "ZTFphotometric_mae_2-2-4-2-128_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch128_mask0.3_aug5"
+trained_mae = torch.load(f"../ckpt/{ckpt_mae}.pth",
+                         map_location=torch.device('cpu'), weights_only = False).to(device)
 
+
+torch.manual_seed(42)
+encode_mae = trained_mae.encode(x)
+encode_mae = to_np_cpu(encode_mae)
+encode_mae = encode.reshape(encode_mae.shape[0], -1)
 
 #breakpoint()
 
@@ -67,13 +75,16 @@ encode_vae = to_np_cpu(encode_vae)
 encode_vae = encode_vae.reshape(encode_vae.shape[0], -1)
 
 
-np.savez(f"./encodes/{ckpt}_test.npz",
+np.savez(f"./encodes/{ckpt}.npz",
          encode = encode,
          types = types
          )
+np.savez(f"./encodes/{ckpt_mae}.npz",
+         encode = encode_mae,
+         types = types
+         )
 
-
-np.savez(f"./encodes/{vae_ckpt}_test.npz",
+np.savez(f"./encodes/{vae_ckpt}.npz",
          encode = encode_vae,
          types = types
          )

@@ -51,71 +51,61 @@ class AstroM3Dataset(Dataset):
         #breakpoint()
         return res
 
-which = "train"
-test_data = AstroM3Dataset(which=which)
-
-ckpt = "AstroM3spectra_daep_4-8-4-4-128_8_8_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch64_reg0.0_aug1"
+test_data = AstroM3Dataset(which="test")
+torch.manual_seed(42)
+size = 50
+ckpt = "AstroM3spectra_mae_4-8-4-2-128_8_8_hiddenlen256_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch64_mask0.75_aug1"
 trained_daep = torch.load(f"../ckpt/{ckpt}.pth",
                          map_location=torch.device('cpu'), weights_only = False).to(device)
 
-mae_ckpt = "AstroM3spectra_mae_4-8-4-2-128_8_8_hiddenlen256_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch64_mask0.75_aug1"
-trained_mae = torch.load(f"../ckpt/{mae_ckpt}.pth",
-                         map_location=torch.device('cpu'), weights_only = False).to(device)
 
-
-vae_ckpt = "AstroM3_spectra_vaesne_4-8-128-6_heads8_hiddenlen256_0.00025_epoch200_batch128_aug1_beta0.1"
-trained_vae = torch.load(f"../ckpt/{vae_ckpt}.pth",
-                         map_location=torch.device('cpu'), weights_only = False).to(device)
-#torch.manual_seed(4125)
-#breakpoint()
-batch_size = 256
-test_loader = DataLoader(test_data, batch_size = batch_size, collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'],
+test_loader = DataLoader(test_data, batch_size = 64, collate_fn = padding_collate_fun(supply=['flux', 'wavelength', 'time'],
                                                           mask_by="flux", multimodal=False), shuffle = False)
-from tqdm import tqdm
+
 for i, x in tqdm(enumerate(test_loader)):
 
-    types = test_data.dataset['label'][(i*batch_size):min((i+1)*batch_size, len(test_data))]
-
     x = to_device(x)
-
-
-
-
-    torch.manual_seed(42)
-    encode = trained_daep.encode(x)
-    encode = to_np_cpu(encode)
-    encode = encode.reshape(encode.shape[0], -1)
-
-    encode_mae = trained_mae.encode(x)
-    encode_mae = to_np_cpu(encode_mae)
-    encode_mae = encode_mae.reshape(encode_mae.shape[0], -1)
-
+    x_ori = copy.deepcopy(x)
     #breakpoint()
 
-    x_vae = (x['flux'], x['wavelength'], x['phase'], x['mask'])
 
 
 
-    encode_vae = trained_vae.encode(x_vae)
-    encode_vae = to_np_cpu(encode_vae)
-    encode_vae = encode_vae.reshape(encode_vae.shape[0], -1)
+    rec = []
+
+    for j in tqdm(range(size)):
+        x = copy.deepcopy(x_ori)
+        recon = trained_daep.reconstruct(x, 0.9)
+        recon = to_np_cpu(recon)
+        rec.append(recon)
+    x_ori = to_np_cpu(x_ori)
+
+    save_dictlist(f"./res/AstroM3spectra/{ckpt}_rec_0.9_batch{i}.npz", rec)
 
 
-    np.savez(f"./encodes/AstroM3spectra/{ckpt}_{which}_batch{i}.npz",
-         encode = encode,
-         types = types
-         )
+fig, axes = plt.subplots(4, 5, figsize=(50, 12))  # 4 rows, 5 columns
+axes = axes.flatten()
+for i in range(20):
+    wavelength = x_ori['wavelength'][i][~x_ori['mask'][i]] * 1548.8627 + 6000.1543
+    sortwavelength = np.argsort(wavelength)
+    axes[i].plot(wavelength[sortwavelength],
+                 recon['flux'][i][~recon['mask'][i]][sortwavelength]* 0.7795 + 2.8766,
+                 color = "blue",
+                 label = "daep" if i == 0 else None
+                 )
+    axes[i].plot(wavelength[sortwavelength],
+                 x_ori['flux'][i][~x_ori['mask'][i]][sortwavelength] * 0.7795 + 2.8766,
+                 color = "red",
+                 label = "ground truth" if i == 0 else None
+                 )
     
-    np.savez(f"./encodes/AstroM3spectra/{mae_ckpt}_{which}_batch{i}.npz",
-         encode = encode_mae,
-         types = types
-         )
+    axes[i].set_xlabel("normalized wavelength")
 
 
-    np.savez(f"./encodes/AstroM3spectra/{vae_ckpt}_{which}_batch{i}.npz",
-         encode = encode_vae,
-         types = types
-         )
-
-
-
+axes[0].legend()
+axes[0].set_ylabel("logFnu")
+axes[5].set_ylabel("logFnu")
+plt.tight_layout()
+fig.show()
+fig.savefig("spectra_recon_AstroM3_mae.pdf")
+plt.close()

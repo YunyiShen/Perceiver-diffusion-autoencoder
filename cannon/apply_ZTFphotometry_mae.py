@@ -42,7 +42,7 @@ test_loader = DataLoader(test_data, batch_size = 128, collate_fn = collate_fn_st
 
 size = 50
 #ckpt = "ZTFphotometric_daep_2-2-4-4-128_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch128_reg0.0_aug5"
-ckpt = "ZTFphotometric_mae_2-2-4-2-128_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch128_mask0.75_aug5"
+ckpt = "ZTFphotometric_mae_2-2-4-2-128_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch128_mask0.3_aug5"
 
 trained_daep = torch.load(f"../ckpt/{ckpt}.pth",
                          map_location=torch.device('cpu'), weights_only = False).to(device)
@@ -63,7 +63,7 @@ for i, x in tqdm(enumerate(test_loader)):
 
     for j in range(size):
         x = copy.deepcopy(x_ori)
-        recon = trained_daep.reconstruct(x, ddim_steps = 200)
+        recon = trained_daep.reconstruct(x, 0.75)
         recon = to_np_cpu(recon)
         recon['flux'] = recon['flux'] * flux_std + flux_mean
     
@@ -74,11 +74,9 @@ for i, x in tqdm(enumerate(test_loader)):
     x_ori['flux'] = x_ori['flux'] * flux_std + flux_mean 
 
     save_dictlist(f"./res/ZTFphotometry/{ckpt}_rec_batch{i}.npz", rec)
-    np.savez(f"./res/ZTFphotometry/{ckpt}_gt_batch{i}.npz",
-         **x_ori
-         )
+    
 
-'''
+
 plt.rcParams.update({'font.size': 20})  # sets default font size
 fig, axes = plt.subplots(3, 6, figsize=(20, 8))  # 4 rows, 5 columns
 #axes = axes.flatten()
@@ -112,7 +110,7 @@ fig.legend(handles, labels, loc='lower center', ncol=len(labels),
            bbox_to_anchor=(0.5, -0.02), fontsize=12)
 plt.tight_layout()
 fig.show()
-fig.savefig("ZTFLC_recon.pdf")
+fig.savefig("ZTFLC_recon_mae.pdf")
 plt.close()
-'''
+
 

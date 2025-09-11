@@ -67,12 +67,22 @@ encode = to_np_cpu(encode)
 encode = encode.reshape(encode.shape[0], -1)
 
 
+#### mae #####
+ckpt_mae = "ZTFspectra_mae_4-4-4-2-128_heads8-8_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch128_mask0.75_aug5"
+trained_mae = torch.load(f"../ckpt/{ckpt_mae}.pth",
+                         map_location=torch.device('cpu'), weights_only = False).to(device)
 
-#breakpoint()
 
+torch.manual_seed(42)
+encode_mae = trained_mae.encode(x)
+encode_mae = to_np_cpu(encode_mae)
+encode_mae = encode_mae.reshape(encode_mae.shape[0], -1)
+
+
+#### VAE ####
 x_vae = (x['flux'], x['wavelength'], x['phase'], x['mask'])
 
-vae_ckpt = "ZTF_spectra_vaesne_4-4-128-4_heads4_0.00025_epoch2000_batch128_aug5_beta0.1"
+vae_ckpt = "ZTF_spectra_vaesne_4-4-128-4_heads8_0.00025_epoch2000_batch128_aug5_beta0.1"
 trained_vae = torch.load(f"../ckpt/{vae_ckpt}.pth",
                          map_location=torch.device('cpu'), weights_only = False).to(device)
 
@@ -93,4 +103,7 @@ np.savez(f"./encodes/{vae_ckpt}_test.npz",
          )
 
 
-
+np.savez(f"./encodes/{ckpt_mae}_test.npz",
+         encode = encode_mae,
+         types = types
+         )
