@@ -54,7 +54,7 @@ class AstroM3Dataset(Dataset):
 test_data = AstroM3Dataset(which="test")
 torch.manual_seed(42)
 size = 50
-ckpt = "AstroM3spectra_mae_4-8-4-2-128_8_8_hiddenlen256_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch64_mask0.75_aug1"
+ckpt = "AstroM3spectra_mae_4-8-4-2-128_8_8_hiddenlen256_concatTrue_corrattnonlyFalse_lr0.00025_epoch2000_batch64_mask0.3_aug1"
 trained_daep = torch.load(f"../ckpt/{ckpt}.pth",
                          map_location=torch.device('cpu'), weights_only = False).to(device)
 
@@ -75,12 +75,12 @@ for i, x in tqdm(enumerate(test_loader)):
 
     for j in tqdm(range(size)):
         x = copy.deepcopy(x_ori)
-        recon = trained_daep.reconstruct(x, 0.9)
+        recon = trained_daep.reconstruct(x, 0.75)
         recon = to_np_cpu(recon)
         rec.append(recon)
     x_ori = to_np_cpu(x_ori)
 
-    save_dictlist(f"./res/AstroM3spectra/{ckpt}_rec_0.9_batch{i}.npz", rec)
+    save_dictlist(f"./res/AstroM3spectra/{ckpt}_rec_batch{i}.npz", rec) # no number between rec and batch means 0.75
 
 
 fig, axes = plt.subplots(4, 5, figsize=(50, 12))  # 4 rows, 5 columns
