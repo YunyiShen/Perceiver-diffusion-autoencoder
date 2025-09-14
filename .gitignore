@@ -182,3 +182,5 @@ ckpt
 *.pdf
 cannon/res/*
 *.npz
+cannon/encodes/classification_ckpt
+cannon/encodes/classification_metric

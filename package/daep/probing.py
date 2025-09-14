@@ -4,9 +4,9 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import train_test_split
 
-def make_fewshot_loaders(test_dict, n_train_per_class=20, batch_size=64):
-    X = test_dict["encoding"]
-    y = test_dict["label"]
+def make_fewshot_loaders(test_dict, training_proportion=0.5, batch_size=64, names = ["encode", "types"]):
+    X = test_dict[names[0]]
+    y = test_dict[names[1]]
 
     X_support, y_support = [], []
     X_query, y_query = [], []
@@ -14,7 +14,8 @@ def make_fewshot_loaders(test_dict, n_train_per_class=20, batch_size=64):
     # few-shot split per class
     for label in np.unique(y):
         idx = np.where(y == label)[0]
-        idx_train, idx_test = train_test_split(idx, train_size=min(n_train_per_class, len(idx)), random_state=42)
+        #breakpoint()
+        idx_train, idx_test = train_test_split(idx, train_size=training_proportion, random_state=42)
 
         X_support.append(X[idx_train])
         y_support.append(y[idx_train])
@@ -83,7 +84,7 @@ def train_probe(model, train_loader, test_loader, epochs=20, lr=1e-3, device="cp
     """Train a probe and return train/test accuracy."""
     model = model.to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
 
     for epoch in range(epochs):
         model.train()
