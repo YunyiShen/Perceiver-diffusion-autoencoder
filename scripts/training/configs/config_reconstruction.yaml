@@ -6,9 +6,9 @@ data:
   data_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/data/
   models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
 
-test_name: tess_20k      # Name of test, to organize models and results
-data_types: [lightcurves]    # Types of datasets (i.e. spectra, lightcurves)
-data_names: [tess_20k]   # Names of datasets, corresponding to data_types
+test_name: galah_1k      # Name of test, to organize models and results
+data_types: [spectra]    # Types of datasets (i.e. spectra, lightcurves)
+data_names: [galah_1k]   # Names of datasets, corresponding to data_types
 train_from_checkpoint: false
 checkpoint_path: null
 
@@ -23,12 +23,12 @@ training:
 unimodal:
   architecture:
     shape:
-      bottlenecklen: 16
-      bottleneckdim: 16
+      bottlenecklen: 32
+      bottleneckdim: 32
       model_dim: 128
       encoder_layers: null
       decoder_layers: null
-      encoder_heads: 16
+      encoder_heads: 8
       decoder_heads: null
     components:
       concat: null

@@ -437,20 +437,7 @@ def create_and_extract_dataset(test_name: str = TEST_NAME, data_path: str = DATA
     ids_path = raw_data_dir / f"{test_name}_ids.fits"
     
     dataset = GALAHDataset(data_dir=data_dir, raw_data_dir=raw_data_dir, galah_catalog_path=galah_catalog_path, ids_path=ids_path, train=True, extract=True)
-    print(dataset.fluxes.shape)
-    print(dataset.wavelengths.shape)
-    print(dataset.fluxes_errs.shape)
-    print(dataset.ids.shape)
-    print(dataset.labels.shape)
-    print(dataset.label_errs.shape)
-    
     dataset_test = GALAHDataset(data_dir=data_dir, raw_data_dir=raw_data_dir, galah_catalog_path=galah_catalog_path, ids_path=ids_path, train=False, extract=True)
-    print(dataset_test.fluxes.shape)
-    print(dataset_test.wavelengths.shape)
-    print(dataset_test.fluxes_errs.shape)
-    print(dataset_test.ids.shape)
-    print(dataset_test.labels.shape)
-    print(dataset_test.label_errs.shape)
 
 import fire
 

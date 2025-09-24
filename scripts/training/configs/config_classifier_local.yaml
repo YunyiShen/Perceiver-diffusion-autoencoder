@@ -7,9 +7,9 @@ data:
   models_path_remote: /nobackup/users/allisone/UROP_2025_Summer/Perceiver-diffusion-autoencoder/models/
 
 model_type: null
-test_name: tessv1      # Name of test, to organize models and results
+test_name: tessv3      # Name of test, to organize models and results
 data_types: [lightcurves]    # Types of datasets (i.e. spectra, lightcurves)
-data_names: [tessv1]   # Names of datasets, corresponding to data_types
+data_names: [tessv3]   # Names of datasets, corresponding to data_types
 process_lightcurves: true
 train_from_checkpoint: false
 checkpoint_path: null

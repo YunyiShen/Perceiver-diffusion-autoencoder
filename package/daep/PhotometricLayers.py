@@ -371,8 +371,50 @@ This is an encoder that uses the TESS-Transformer architecture to encode photome
 """
 
 class TESSTransformerPhotometryEncoder(nn.Module):
-    def __init__(self, emb_d, num_heads, layers, dropout_p, ffn_d, num_classes):
+    def __init__(self,
+                 num_bands, 
+                 bottleneck_dim,
+                 hidden_len = 256,
+                 model_dim = 256, 
+                 num_heads = 8, 
+                 ff_dim = 256,
+                 num_layers = 4,
+                 dropout=0.1,
+                 selfattn=False, 
+                 concat = True,
+                 fourier = False
+                 ):
+        '''
+        Transceiver encoder for photometry with two stage perceiver IO, with cross attention pooling
+        Args:
+            num_bands: number of bands, currently embedded as class
+            bottleneck_length: LCs are encoded as a sequence of size [bottleneck_length, bottleneck_dim]
+            bottleneck_dim: LCs are encoded as a sequence of size [bottleneck_length, bottleneck_dim]
+            hidden_len: length of the hidden sequence in perceiver IO
+            model_dim: dimension the transformer should operate 
+            num_heads: number of heads in the multiheaded attention
+            ff_dim: dimension of the MLP hidden layer in transformer
+            num_layers: number of transformer blocks
+            dropout: drop out in transformer
+            selfattn: if we want self attention to the given LC
+            concat: how to construct flux, band and time joint embedding. If True, we separately embedding them, concatenate at the last dimension then project using a small MLP to model dimension, otherwise they are separately embedded and added
+        '''
         super(TESSTransformerPhotometryEncoder,self).__init__()
+        bottleneck_len = 1
+        self.bottleneck_len = bottleneck_len
+        self.bottleneck_dim = bottleneck_dim
+        self.emb_d = model_dim
+        
+        self.encoder = TESSTransformerPhotometryEncoderBase(self.emb_d, num_heads, num_layers, dropout, ff_dim)
+        
+
+    def forward(self, x,t, mask=None):
+        x = self.encoder(x, t, mask)
+        return x
+
+class TESSTransformerPhotometryEncoderBase(nn.Module):
+    def __init__(self, emb_d, num_heads, layers, dropout_p, ffn_d):
+        super(TESSTransformerPhotometryEncoderBase,self).__init__()
         self.lsatt_conv_layers  = nn.ModuleList([LSATT_CONV(emb_d=emb_d, num_heads=num_heads, dropout_p=dropout_p, ffn_d=ffn_d) for _ in range(layers)])
         self.embed1 = nn.Linear(1, emb_d)
 
